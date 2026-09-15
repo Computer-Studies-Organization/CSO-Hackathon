@@ -5,12 +5,8 @@ import {
   onAuthStateChanged
 } from 'firebase/auth'
 import {
-  collection,
   doc,
-  getDoc,
-  getDocs,
-  query,
-  where
+  getDoc
 } from 'firebase/firestore'
 
 import { auth, githubProvider, db } from '@/firebase/config'
@@ -28,24 +24,24 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.user,
 
     isSuperadmin: (state) =>
-        state.user != null &&
-        state.role === 'superadmin',
+      state.user != null &&
+      state.role === 'superadmin',
 
     isAdmin: (state) =>
-        state.user != null &&
-        ['superadmin', 'admin'].includes(state.role),
+      state.user != null &&
+      ['superadmin', 'admin'].includes(state.role),
 
     isStaff: (state) =>
-        state.user != null &&
-        ['superadmin', 'admin', 'staff'].includes(state.role),
+      state.user != null &&
+      ['superadmin', 'admin', 'staff'].includes(state.role),
 
     canAccessPanel() {
-        return this.isAuthenticated && this.isStaff
+      return this.isAuthenticated && this.isStaff
     },
 
     githubUsername: (state) =>
-        state.user?.reloadUserInfo?.screenName || null
-    },
+      state.user?.reloadUserInfo?.screenName || null
+  },
 
   actions: {
     async loginWithGithub() {
@@ -64,7 +60,10 @@ export const useAuthStore = defineStore('auth', {
 
         return result.user
       } catch (error) {
+        console.error('Login failed:', error)
+
         this.error = this.getFirebaseErrorMessage(error)
+
         throw error
       } finally {
         this.isLoading = false
@@ -77,7 +76,10 @@ export const useAuthStore = defineStore('auth', {
 
         this.user = null
         this.role = null
+        this.error = null
       } catch (error) {
+        console.error('Logout failed:', error)
+
         this.error = 'Unable to sign out.'
       }
     },
@@ -103,54 +105,46 @@ export const useAuthStore = defineStore('auth', {
         return null
       }
 
-      // Roles resolve solely from the `staff` collection in Firestore.
-      // The first superadmin must be created manually via Firebase
-      // Console (document ID = Firebase Auth UID, role = 'superadmin').
       try {
-        let data = null
+        const staffRef = doc(
+          db,
+          'staff',
+          this.user.uid
+        )
 
-        // 1. Staff document with ID = UID
-        const byId = await getDoc(doc(db, 'staff', this.user.uid))
-        if (byId.exists()) {
-          data = byId.data()
-        }
+        const snapshot = await getDoc(staffRef)
 
-        // 2. Fallback: staff created via UI (auto-ID documents),
-        // matched by uid field or GitHub username
-        if (!data) {
-          let snap = await getDocs(
-            query(collection(db, 'staff'), where('uid', '==', this.user.uid))
+        if (!snapshot.exists()) {
+          console.warn(
+            'No staff document found for:',
+            this.user.uid
           )
-          let match = snap.docs.find((d) => d.data().active !== false)
 
-          if (!match && this.githubUsername) {
-            snap = await getDocs(
-              query(
-                collection(db, 'staff'),
-                where('githubUsername', '==', this.githubUsername.toLowerCase())
-              )
-            )
-            match = snap.docs.find((d) => d.data().active !== false)
-          }
-
-          if (match) data = match.data()
-        }
-
-        if (!data) {
           return null
         }
+
+        const data = snapshot.data()
 
         // Inactive staff cannot access the panel
         if (data.active === false) {
+          console.warn('Staff account is inactive.')
+
           return null
         }
 
-        // Keep the raw role so superadmin/admin/staff stay distinct.
-        // Unknown values grant nothing (fail-closed).
-        this.role = ['superadmin', 'admin', 'staff'].includes(data.role)
-          ? data.role
-          : null
+        // Fail closed for invalid roles
+        if (
+          !['superadmin', 'admin', 'staff'].includes(data.role)
+        ) {
+          console.warn(
+            'Invalid staff role:',
+            data.role
+          )
 
+          return null
+        }
+
+        this.role = data.role
 
         return this.role
 
@@ -176,6 +170,9 @@ export const useAuthStore = defineStore('auth', {
 
         case 'auth/cancelled-popup-request':
           return 'The sign-in request was cancelled.'
+
+        case 'auth/unauthorized-domain':
+          return 'This domain is not authorized for Firebase Authentication.'
 
         default:
           return 'Unable to sign in with GitHub. Please try again.'
