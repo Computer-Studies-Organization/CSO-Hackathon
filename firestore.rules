@@ -2,8 +2,8 @@ rules_version = '2';
 
 // CSO Repository — Firestore Security Rules
 // Users: read own submissions, create own submission.
-// Staff/admins: panel access via `staff` collection or UID allowlist.
-// Admins (VITE_ADMIN_UIDS): full read + manage all submissions & staff.
+// Staff/admins: roles resolve from the `staff` collection
+// (document ID = Firebase Auth UID). No hardcoded UIDs.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -12,13 +12,9 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // All admin rights resolve from the `staff` collection.
     function isAdmin() {
-      return isSignedIn()
-        && (
-          request.auth.uid in [
-            'paSsNKST0bRN1rj83SysfKP87Yd2'
-          ] || isStaffAdmin()
-        );
+      return isSignedIn() && isStaffAdmin();
     }
 
     // Admins whose staff document uses their UID as the document ID.

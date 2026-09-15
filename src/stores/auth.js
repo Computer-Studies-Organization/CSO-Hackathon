@@ -103,32 +103,19 @@ export const useAuthStore = defineStore('auth', {
         return null
       }
 
-      // 1. UID allowlist — works even without any staff document
-      const allowlist = (import.meta.env.VITE_ADMIN_UIDS || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (allowlist.includes(this.user.uid)) {
-        this.role = 'superadmin'
-        return 'superadmin'
-      }
-
-      if (!allowlist.length) {
-        console.warn(
-          'VITE_ADMIN_UIDS is empty. Panel admin access now requires a staff document with role admin/superadmin.'
-        )
-      }
-
+      // Roles resolve solely from the `staff` collection in Firestore.
+      // The first superadmin must be created manually via Firebase
+      // Console (document ID = Firebase Auth UID, role = 'superadmin').
       try {
         let data = null
 
-        // 2. Staff document with ID = UID
+        // 1. Staff document with ID = UID
         const byId = await getDoc(doc(db, 'staff', this.user.uid))
         if (byId.exists()) {
           data = byId.data()
         }
 
-        // 3. Fallback: staff created via UI (auto-ID documents),
+        // 2. Fallback: staff created via UI (auto-ID documents),
         // matched by uid field or GitHub username
         if (!data) {
           let snap = await getDocs(
