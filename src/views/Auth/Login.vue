@@ -1,10 +1,11 @@
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const isLoading = computed(() => authStore.isLoading)
@@ -14,8 +15,14 @@ const loginWithGithub = async () => {
   try {
     await authStore.loginWithGithub()
 
-    // Login successful
-    router.push('/submit')
+    // Login successful — return to originally requested page if any
+    const redirect =
+      typeof route.query.redirect === 'string'
+      && route.query.redirect.startsWith('/')
+      && !route.query.redirect.startsWith('//')
+        ? route.query.redirect
+        : '/submit'
+    router.push(redirect)
   } catch (error) {
     console.error('Login failed:', error)
   }

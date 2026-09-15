@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// CSO Repository — Firestore Security Rules
+// Users: read own submissions, create own submission.
+// Staff/admins: panel access via `staff` collection or UID allowlist.
+// Admins (VITE_ADMIN_UIDS): full read + manage all submissions & staff.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && (
+          request.auth.uid in [
+            'paSsNKST0bRN1rj83SysfKP87Yd2'
+          ] || isStaffAdmin()
+        );
+    }
+
+    // Admins whose staff document uses their UID as the document ID.
+    function isStaffAdmin() {
+      return exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in ['admin', 'superadmin']
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active != false;
+    }
+
+    match /submissions/{docId} {
+      // Admin reads all (dashboard); users read own only
+      // (required by the duplicate-check query in submitProject).
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Signed-in users create only their own submission.
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      // Only admins may update/delete (e.g. status changes).
+      allow update, delete: if isAdmin();
+    }
+
+    match /staff/{docId} {
+      // Any signed-in user can look up roles (needed at login
+      // to resolve staff membership by UID or GitHub username).
+      allow read: if isSignedIn();
+
+      // Only admins may create/disable/remove staff accounts —
+      // except superadmin accounts, which are protected.
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin() && resource.data.role != 'superadmin';
+    }
+  }
+}

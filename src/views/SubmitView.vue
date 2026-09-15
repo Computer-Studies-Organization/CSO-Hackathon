@@ -11,11 +11,27 @@ const submissionStore = useSubmissionStore()
 const router = useRouter()
 
 const form = reactive({
+  groupName: '',
   projectName: '',
+  members: [''],
   description: '',
   repositoryUrl: '',
   techStack: ''
 })
+
+const MAX_MEMBERS = 5
+
+const addMember = () => {
+  if (form.members.length < MAX_MEMBERS) {
+    form.members.push('')
+  }
+}
+
+const removeMember = (index) => {
+  if (form.members.length > 1) {
+    form.members.splice(index, 1)
+  }
+}
 
 
 const Whyweneed = [
@@ -48,14 +64,23 @@ const submitProject = async () => {
   }
 
   try {
+    const memberList = form.members.map((m) => m.trim()).filter(Boolean)
+
+    if (!memberList.length) {
+      alert('Please add at least one team member.')
+      return
+    }
+
     await submissionStore.submitProject(
       authStore.user,
-      form
+      { ...form, members: memberList }
     )
 
     alert('Project submitted successfully!')
 
+    form.groupName = ''
     form.projectName = ''
+    form.members = ['']
     form.description = ''
     form.repositoryUrl = ''
     form.techStack = ''
@@ -443,6 +468,35 @@ const submitProject = async () => {
         @submit.prevent="submitProject"
       >
 
+        <!-- Group Name -->
+        <div>
+
+          <label
+            for="groupName"
+            class="block text-sm font-semibold mb-2"
+          >
+            Group Name
+          </label>
+
+          <input
+            id="groupName"
+            v-model="form.groupName"
+            type="text"
+            required
+            placeholder="e.g. Code Hunters"
+            class="w-full px-4 py-3 rounded-xl
+                   bg-black/30
+                   border border-white/10
+                   text-white
+                   placeholder-gray-500
+                   outline-none
+                   focus:border-purple-400
+                   transition"
+          />
+
+        </div>
+
+
         <!-- Project Name -->
         <div>
 
@@ -468,6 +522,72 @@ const submitProject = async () => {
                    focus:border-purple-400
                    transition"
           />
+
+        </div>
+
+
+        <!-- Members Name -->
+        <div>
+
+          <label class="block text-sm font-semibold mb-2">
+            Members Name
+          </label>
+
+          <div class="space-y-3">
+            <div
+              v-for="(member, index) in form.members"
+              :key="index"
+              class="flex gap-2"
+            >
+              <input
+                v-model="form.members[index]"
+                type="text"
+                :required="index === 0"
+                :placeholder="`Member ${index + 1} full name`"
+                class="flex-1 px-4 py-3 rounded-xl
+                       bg-black/30
+                       border border-white/10
+                       text-white
+                       placeholder-gray-500
+                       outline-none
+                       focus:border-purple-400
+                       transition"
+              />
+              <button
+                v-if="form.members.length > 1"
+                type="button"
+                @click="removeMember(index)"
+                title="Remove member"
+                class="shrink-0 w-12 rounded-xl
+                       bg-red-500/10
+                       border border-red-500/20
+                       text-red-300 font-bold
+                       hover:bg-red-500/20
+                       transition"
+              >
+                −
+              </button>
+            </div>
+          </div>
+
+          <button
+            v-if="form.members.length < MAX_MEMBERS"
+            type="button"
+            @click="addMember"
+            class="mt-3 inline-flex items-center gap-2
+                   px-4 py-2 rounded-xl
+                   bg-white/5
+                   border border-white/10
+                   text-sm font-semibold text-gray-200
+                   hover:bg-white/10 hover:text-white
+                   transition"
+          >
+            + Add member
+          </button>
+
+          <p class="mt-2 text-xs text-gray-500">
+            One member per row — max {{ MAX_MEMBERS }} per team.
+          </p>
 
         </div>
 
@@ -528,7 +648,7 @@ const submitProject = async () => {
           />
 
           <p class="mt-2 text-xs text-gray-500">
-            Your repository must be publicly accessible.
+            Your repository must be publicly accessible. We verify that it exists before accepting your submission.
           </p>
 
         </div>
@@ -560,6 +680,17 @@ const submitProject = async () => {
                    transition"
           />
 
+        </div>
+
+
+        <!-- Submit Error -->
+        <div
+          v-if="submissionStore.error"
+          class="p-4 rounded-xl bg-red-500/10 border border-red-500/20"
+        >
+          <p class="text-xs text-red-200 leading-relaxed">
+            {{ submissionStore.error }}
+          </p>
         </div>
 
 

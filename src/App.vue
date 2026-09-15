@@ -1,9 +1,12 @@
 <script setup>
-import { RouterLink, RouterView } from 'vue-router'
-import { onMounted } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
+const route = useRoute()
+
+const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 
 onMounted(() => {
   authStore.initializeAuth()
@@ -13,10 +16,11 @@ onMounted(() => {
 
 <template>
   <div class=" bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
-      <header class=" backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 text-white">
+      <header v-if="!isAdminRoute" class=" backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 text-white">
       <div class="container mx-auto py-4 px-6 flex justify-between items-center">
-        <div>
+        <div class="flex items-center gap-3">
           <img src="/assets/Untitled3_20250620213045.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto" />
+          <h1>ACLC CODEFEST  PRE-HAKATHON 2026</h1>
       </div>
         <nav class="flex items-center space-x-6 justify-center">
           <RouterLink to="/" active-class="underline font-bold">
@@ -77,6 +81,7 @@ onMounted(() => {
     </div>
 
      <footer
+    v-if="!isAdminRoute"
     class="mt-16 border-t border-white/10
            bg-gray-950/70 backdrop-blur-xl
            text-white"

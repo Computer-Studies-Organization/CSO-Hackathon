@@ -49,6 +49,7 @@ defineProps({
         v-if="pdfUrl"
         :href="pdfUrl"
         target="_blank"
+        rel="noopener"
         class="inline-block mt-4 text-blue-300 underline text-sm hover:text-blue-200"
       >
         {{ pdfLabel }}
