@@ -8,6 +8,7 @@ import {
   ExternalLink,
   LogOut,
   ChevronRight,
+  ShieldCheck,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
@@ -247,20 +248,41 @@ const handleLogout = async () => {
 
         <!-- Top bar -->
         <header
-          class="h-20 border-b border-white/10
-                 flex items-center justify-between
-                 px-6 lg:px-10"
+          class="border-b border-white/10
+                 flex flex-col justify-center gap-3
+                 px-6 lg:px-10 py-4"
         >
 
-          <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wider">
-              Administration
-            </p>
-
-            <h1 class="text-lg font-semibold text-white">
+          <!-- Breadcrumb -->
+          <nav
+            aria-label="Breadcrumb"
+            class="flex items-center gap-1.5 text-sm min-w-0"
+          >
+            <ShieldCheck :size="16" class="shrink-0 text-purple-400" />
+            <span class="shrink-0 text-gray-500">Admin</span>
+            <ChevronRight :size="14" class="shrink-0 text-gray-600" />
+            <span class="truncate text-white font-semibold">
               {{ route.meta?.title || 'Admin Panel' }}
-            </h1>
-          </div>
+            </span>
+          </nav>
+
+          <!-- Mobile nav pills -->
+          <nav class="flex lg:hidden gap-2 overflow-x-auto pb-1">
+            <RouterLink
+              v-for="item in visibleNavItems"
+              :key="item.to"
+              :to="item.to"
+              class="shrink-0 flex items-center gap-2 px-3 py-2
+                     rounded-lg text-xs font-semibold
+                     transition border"
+              :class="isActive(item)
+                ? 'bg-purple-500/10 border-purple-400/30 text-purple-300'
+                : 'bg-white/5 border-white/10 text-gray-400'"
+            >
+              <component :is="item.icon" :size="15" />
+              {{ item.label }}
+            </RouterLink>
+          </nav>
 
         </header>
 

@@ -40,9 +40,9 @@ const loginWithGithub = async () => {
       <div class="text-center mb-8">
 
         <img
-          src="/assets/Untitled3_20250620213045.png"
+          src="/assets/CSOLOGO-removebg-preview.png"
           alt="ACLC Logo Committee"
-          class="h-16 mx-auto mb-5"
+          class="h-16 mx-auto mb-5 bg-white rounded-full"
         />
 
         <h1 class="text-3xl font-extrabold text-white">

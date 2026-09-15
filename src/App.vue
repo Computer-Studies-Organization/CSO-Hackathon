@@ -1,12 +1,18 @@
 <script setup>
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { Menu, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const route = useRoute()
 
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+const mobileOpen = ref(false)
+
+watch(() => route.path, () => {
+  mobileOpen.value = false
+})
 
 onMounted(() => {
   authStore.initializeAuth()
@@ -17,12 +23,13 @@ onMounted(() => {
 <template>
   <div class=" bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
       <header v-if="!isAdminRoute" class=" backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 text-white">
-      <div class="container mx-auto py-4 px-6 flex justify-between items-center">
-        <div class="flex items-center gap-3">
-          <img src="/assets/Untitled3_20250620213045.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto" />
-          <h1>ACLC CODEFEST  PRE-HAKATHON 2026</h1>
+      <div class="container mx-auto py-4 px-6 flex justify-between items-center gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <img src="/assets/CSOLOGO-removebg-preview.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
+          <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST  PRE-HAKATHON 2026</h1>
       </div>
-        <nav class="flex items-center space-x-6 justify-center">
+        <!-- Desktop nav -->
+        <nav class="hidden md:flex items-center space-x-6 justify-center">
           <RouterLink to="/" active-class="underline font-bold">
             Home
           </RouterLink>
@@ -71,9 +78,63 @@ onMounted(() => {
           </div>
         </nav>
 
+        <!-- Hamburger (mobile) -->
+        <button
+          class="md:hidden p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
+          :aria-label="mobileOpen ? 'Close menu' : 'Open menu'"
+          :aria-expanded="mobileOpen"
+          @click="mobileOpen = !mobileOpen"
+        >
+          <Menu v-if="!mobileOpen" :size="22" />
+          <X v-else :size="22" />
+        </button>
+
         <!-- <rudePing/> -->
       </div>
-      
+
+      <!-- Mobile nav -->
+      <nav
+        v-if="mobileOpen"
+        class="md:hidden border-t border-white/10 px-6 py-4 flex flex-col gap-1 text-sm"
+      >
+        <RouterLink to="/" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
+          Home
+        </RouterLink>
+        <RouterLink to="/submit" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
+          Submit
+        </RouterLink>
+        <RouterLink to="/criteria" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
+          Criteria
+        </RouterLink>
+        <RouterLink
+          v-if="!authStore.isAuthenticated"
+          to="/login"
+          active-class="font-bold text-white"
+          class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5"
+        >
+          Sign In
+        </RouterLink>
+        <div v-else class="flex items-center gap-3 px-3 py-2.5">
+          <img
+            v-if="authStore.user?.photoURL"
+            :src="authStore.user.photoURL"
+            :alt="authStore.user.displayName || 'GitHub User'"
+            class="w-9 h-9 rounded-full border border-white/20"
+          />
+          <div class="flex-1 min-w-0 text-sm">
+            <p class="font-semibold truncate">
+              {{ authStore.githubUsername || authStore.user?.displayName }}
+            </p>
+            <button
+              @click="authStore.logout"
+              class="text-xs text-gray-400 hover:text-white transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </nav>
+
     </header>
 
     <div>
@@ -94,9 +155,9 @@ onMounted(() => {
         <div>
           <div class="flex items-center gap-3">
             <img
-              src="/assets/Untitled3_20250620213045.png"
+              src="/assets/CSOLOGO-removebg-preview.png"
               alt="ACLC Logo Committee"
-              class="h-12 w-auto"
+              class="h-12 w-auto bg-white rounded-full"
             />
 
             <div>

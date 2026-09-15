@@ -144,10 +144,13 @@ const submitProject = async () => {
           Why Submit Your Project?
         </h2>
 
-        <p class="mt-2 text-sm text-gray-400 max-w-2xl">
-          Open-source is about sharing, learning, and building
-          together. Your project can become the starting point
-          for new ideas and collaborations.
+        <p class="mt-2 text-sm text-gray-400 ">
+        Submitting your project is an opportunity to showcase what you built, 
+        share your ideas, and contribute to a community of developers and creators.
+
+        Your project can demonstrate your skills, become part of your portfolio, 
+        and inspire others to build on your ideas. Through collaboration 
+        and open-source practices, your work can continue to grow beyond the hackathon.
         </p>
       </div>
 
