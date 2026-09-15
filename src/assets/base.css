@@ -10,10 +10,14 @@ h3 {
   letter-spacing: -0.01em;
 }
 
+html {
+  background-color: #030712;
+}
+
 body {
   min-height: 100vh;
-  color: var(--color-text);
-  background: var(--color-background);
+  color: #f3f4f6;
+  background-color: #030712;
   transition:
     color 0.5s,
     background-color 0.5s;

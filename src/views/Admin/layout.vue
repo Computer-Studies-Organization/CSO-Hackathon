@@ -64,9 +64,9 @@ const handleLogout = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-950 text-white">
+  <div class="min-h-screen bg-gray-950 text-white overflow-x-clip">
 
-    <div class="flex min-h-screen">
+    <div class="flex min-h-screen w-full max-w-[1600px] mx-auto">
 
       <!-- SIDEBAR -->
       <aside

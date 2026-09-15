@@ -21,8 +21,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class=" bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
-      <header v-if="!isAdminRoute" class=" backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 text-white">
+  <div class="min-h-screen flex flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 overflow-x-clip">
+      <header v-if="!isAdminRoute" class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/10 text-white">
       <div class="container mx-auto py-4 px-6 flex justify-between items-center gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <img src="/assets/CSOLOGO-removebg-preview.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
@@ -137,9 +137,9 @@ onMounted(() => {
 
     </header>
 
-    <div>
+    <main class="flex-1">
       <RouterView />
-    </div>
+    </main>
 
      <footer
     v-if="!isAdminRoute"
