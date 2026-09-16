@@ -2,8 +2,10 @@ rules_version = '2';
 
 // CSO Repository — Firestore Security Rules
 // Users: read own submissions, create own submission.
-// Staff/admins: roles resolve from the `staff` collection
-// (document ID = Firebase Auth UID). No hardcoded UIDs.
+// Staff/admins: canonical role doc is `staff/{uid}`
+// (document ID = Firebase Auth UID). Invites created via UI use a
+// random doc ID with { githubUsername, uid: null } and are linked to
+// a canonical UID doc on first GitHub login (see stores/auth.js).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -12,22 +14,69 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // All admin rights resolve from the `staff` collection.
-    function isAdmin() {
-      return isSignedIn() && isStaffAdmin();
+    function staffData(uid) {
+      return get(/databases/$(database)/documents/staff/$(uid)).data;
     }
 
-    // Admins whose staff document uses their UID as the document ID.
-    function isStaffAdmin() {
-      return exists(/databases/$(database)/documents/staff/$(request.auth.uid))
-        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in ['admin', 'superadmin']
-        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active != false;
+    function hasStaffDoc(uid) {
+      return exists(/databases/$(database)/documents/staff/$(uid));
+    }
+
+    // Any staff/admin/superadmin whose canonical UID doc is active.
+    function isStaff() {
+      return isSignedIn()
+        && hasStaffDoc(request.auth.uid)
+        && staffData(request.auth.uid).role in ['staff', 'admin', 'superadmin']
+        && staffData(request.auth.uid).active != false;
+    }
+
+    // All admin rights resolve from the canonical UID doc.
+    function isAdmin() {
+      return isSignedIn()
+        && hasStaffDoc(request.auth.uid)
+        && staffData(request.auth.uid).role in ['admin', 'superadmin']
+        && staffData(request.auth.uid).active != false;
+    }
+
+    // First-login self-claim: any signed-in user may create their own
+    // canonical doc once. Restricted to `staff` to prevent
+    // self-promotion to admin — an existing admin upgrades to `admin`.
+    function isSelfUidCreate(docId) {
+      return isSignedIn()
+        && docId == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.githubUsername is string
+        && request.resource.data.role == 'staff'
+        && request.resource.data.active == true;
+    }
+
+    // Marking a username invite as claimed: uid goes null -> own UID,
+    // role/githubUsername/active must stay unchanged.
+    function isSelfClaim() {
+      return isSignedIn()
+        && resource.data.uid == null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.githubUsername == resource.data.githubUsername
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.active == resource.data.active;
+    }
+
+    // Owner presence touch on their own canonical doc: protected fields
+    // (uid/role/githubUsername/active) must stay unchanged.
+    function isOwnLoginTouch(docId) {
+      return isSignedIn()
+        && docId == request.auth.uid
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.githubUsername == resource.data.githubUsername
+        && request.resource.data.active == resource.data.active;
     }
 
     match /submissions/{docId} {
-      // Admin reads all (dashboard); users read own only
+      // Staff/admins read all (dashboard); users read own only
       // (required by the duplicate-check query in submitProject).
-      allow read: if isAdmin()
+      allow read: if isStaff()
         || (isSignedIn() && resource.data.userId == request.auth.uid);
 
       // Signed-in users create only their own submission.
@@ -43,10 +92,12 @@ service cloud.firestore {
       // to resolve staff membership by UID or GitHub username).
       allow read: if isSignedIn();
 
-      // Only admins may create/disable/remove staff accounts —
-      // except superadmin accounts, which are protected.
-      allow create: if isAdmin();
-      allow update, delete: if isAdmin() && resource.data.role != 'superadmin';
+      // Admins create invites; users create their own UID doc once.
+      allow create: if isAdmin() || isSelfUidCreate(docId);
+      allow update: if (isAdmin() && resource.data.role != 'superadmin')
+        || isSelfClaim()
+        || isOwnLoginTouch(docId);
+      allow delete: if isAdmin() && resource.data.role != 'superadmin';
     }
   }
 }

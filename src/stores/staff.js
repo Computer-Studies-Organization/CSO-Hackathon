@@ -4,6 +4,7 @@ import {
   addDoc,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -37,13 +38,38 @@ export const useStaffStore = defineStore('staff', {
 
       try {
         const snapshot = await getDocs(collection(db, 'staff'))
-        this.staff = snapshot.docs
+        const all = snapshot.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .sort((a, b) => {
             const ta = a.createdAt?.toMillis?.() ?? 0
             const tb = b.createdAt?.toMillis?.() ?? 0
             return tb - ta
           })
+        // Dedupe by githubUsername: after first login there are 2 docs
+        // (random-ID invite + canonical staff/{uid}). Prefer canonical.
+        const byName = new Map()
+        for (const item of all) {
+          const key = (item.githubUsername || '').toLowerCase()
+          if (!key) {
+            byName.set(`id:${item.id}`, item)
+            continue
+          }
+          const existing = byName.get(key)
+          if (!existing) {
+            byName.set(key, item)
+          } else {
+            const existingCanonical = existing.id === existing.uid
+            const itemCanonical = item.id === item.uid
+            if (itemCanonical && !existingCanonical) {
+              byName.set(key, item)
+            }
+          }
+        }
+        this.staff = [...byName.values()].sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() ?? 0
+          const tb = b.createdAt?.toMillis?.() ?? 0
+          return tb - ta
+        })
         return this.staff
       } catch (error) {
         console.error('Fetch staff error:', error)
@@ -104,9 +130,21 @@ export const useStaffStore = defineStore('staff', {
         throw new Error('Superadmin accounts cannot be disabled.')
       }
       try {
-        await updateDoc(doc(db, 'staff', member.id), {
-          active: !(member.active !== false)
-        })
+        const nextActive = !(member.active !== false)
+        // Apply to all docs with same githubUsername (invite + UID doc).
+        const targets = await this.relatedDocs(member)
+        for (const t of targets) {
+          if (t.role === 'superadmin') continue
+          await updateDoc(doc(db, 'staff', t.id), {
+            active: nextActive
+          })
+        }
+        // Fallback: at least update the displayed doc.
+        if (!targets.length) {
+          await updateDoc(doc(db, 'staff', member.id), {
+            active: nextActive
+          })
+        }
         await this.fetchStaff()
       } catch (error) {
         console.error('Toggle staff error:', error)
@@ -115,12 +153,44 @@ export const useStaffStore = defineStore('staff', {
       }
     },
 
+    async relatedDocs(member) {
+      try {
+        const username = (member.githubUsername || '').toLowerCase()
+        if (!username) return [{ id: member.id, ...member }]
+        const snap = await getDocs(
+          query(collection(db, 'staff'), where('githubUsername', '==', username))
+        )
+        const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        // Always include the displayed doc (e.g. UID doc without username yet).
+        if (!docs.some((d) => d.id === member.id)) docs.push({ id: member.id, ...member })
+        // Include by UID match as well (canonical doc).
+        if (member.uid && !docs.some((d) => d.id === member.uid)) {
+          try {
+            const u = await getDoc(doc(db, 'staff', member.uid))
+            if (u.exists()) docs.push({ id: u.id, ...u.data() })
+          } catch {
+            // ignore
+          }
+        }
+        return docs
+      } catch {
+        return [{ id: member.id, ...member }]
+      }
+    },
+
     async removeStaff(member) {
       if (member.role === 'superadmin') {
         throw new Error('Superadmin accounts cannot be removed.')
       }
       try {
-        await deleteDoc(doc(db, 'staff', member.id))
+        const targets = await this.relatedDocs(member)
+        for (const t of targets) {
+          if (t.role === 'superadmin') continue
+          await deleteDoc(doc(db, 'staff', t.id))
+        }
+        if (!targets.length) {
+          await deleteDoc(doc(db, 'staff', member.id))
+        }
         await this.fetchStaff()
       } catch (error) {
         console.error('Remove staff error:', error)

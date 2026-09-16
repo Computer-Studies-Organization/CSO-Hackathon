@@ -79,6 +79,7 @@ onMounted(() => {
         </nav>
 
         <!-- Hamburger (mobile) -->
+         
         <button
           class="md:hidden p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
           :aria-label="mobileOpen ? 'Close menu' : 'Open menu'"

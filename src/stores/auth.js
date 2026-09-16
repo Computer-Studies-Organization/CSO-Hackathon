@@ -2,14 +2,36 @@ import { defineStore } from 'pinia'
 import {
   signInWithPopup,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  getAdditionalUserInfo
 } from 'firebase/auth'
 import {
   doc,
-  getDoc
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  setDoc,
+  updateDoc,
+  serverTimestamp
 } from 'firebase/firestore'
 
 import { auth, githubProvider, db } from '@/firebase/config'
+
+const VALID_ROLES = ['superadmin', 'admin', 'staff']
+
+function extractGithubUsername(user, override) {
+  if (override) {
+    const v = String(override).trim().replace(/^@/, '').toLowerCase()
+    return v || null
+  }
+  const screen = user?.reloadUserInfo?.screenName
+  if (screen) {
+    return String(screen).trim().replace(/^@/, '').toLowerCase() || null
+  }
+  return null
+}
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -56,7 +78,19 @@ export const useAuthStore = defineStore('auth', {
 
         this.user = result.user
 
-        await this.fetchRole()
+        // GitHub username is most reliable from the sign-in result.
+        // reloadUserInfo.screenName is used as fallback on reload.
+        let extraUsername = null
+        try {
+          extraUsername =
+            getAdditionalUserInfo(result)?.username ||
+            result?._tokenResponse?.screenName ||
+            null
+        } catch {
+          extraUsername = null
+        }
+
+        await this.fetchRole(extraUsername)
 
         return result.user
       } catch (error) {
@@ -98,13 +132,14 @@ export const useAuthStore = defineStore('auth', {
       })
     },
 
-    async fetchRole() {
+    async fetchRole(usernameOverride) {
       this.role = null
 
       if (!this.user) {
         return null
       }
 
+      // 1) Canonical lookup: staff document ID = Firebase Auth UID.
       try {
         const staffRef = doc(
           db,
@@ -114,40 +149,151 @@ export const useAuthStore = defineStore('auth', {
 
         const snapshot = await getDoc(staffRef)
 
-        if (!snapshot.exists()) {
+        if (snapshot.exists()) {
+          const data = snapshot.data()
+
+          // Inactive staff cannot access the panel
+          if (data.active === false) {
+            console.warn('Staff account is inactive.')
+
+            return null
+          }
+
+          // Fail closed for invalid roles
+          if (!VALID_ROLES.includes(data.role)) {
+            console.warn(
+              'Invalid staff role:',
+              data.role
+            )
+
+            return null
+          }
+
+          this.role = data.role
+
+          // Best-effort presence update (may fail if rules disallow).
+          try {
+            await updateDoc(staffRef, { lastLoginAt: serverTimestamp() })
+          } catch {
+            // ignore — role is already resolved
+          }
+
+          return this.role
+        }
+      } catch (error) {
+        console.error('Fetch role error:', error)
+
+        this.role = null
+
+        return null
+      }
+
+      // 2) Fallback: invite created via Add Staff uses a random doc ID
+      // with { githubUsername, uid: null }. Link it on first login.
+      const githubUsername = extractGithubUsername(this.user, usernameOverride)
+
+      if (!githubUsername) {
+        console.warn(
+          'No staff document found for:',
+          this.user.uid,
+          '(GitHub username unavailable)'
+        )
+
+        return null
+      }
+
+      try {
+        const staffRef = collection(db, 'staff')
+        const inviteQuery = query(
+          staffRef,
+          where('githubUsername', '==', githubUsername)
+        )
+        const inviteSnap = await getDocs(inviteQuery)
+
+        if (inviteSnap.empty) {
           console.warn(
             'No staff document found for:',
-            this.user.uid
+            this.user.uid,
+            `(@${githubUsername} not in staff list)`
           )
 
           return null
         }
 
-        const data = snapshot.data()
+        // Prefer unclaimed invite, or one already linked to this UID.
+        const candidates = inviteSnap.docs
+          .map((d) => ({ ref: d.ref, id: d.id, ...d.data() }))
+          .filter((d) => d.active !== false && VALID_ROLES.includes(d.role))
+          .filter((d) => d.uid == null || d.uid === this.user.uid)
 
-        // Inactive staff cannot access the panel
-        if (data.active === false) {
+        if (!candidates.length) {
           console.warn('Staff account is inactive.')
 
           return null
         }
 
-        // Fail closed for invalid roles
-        if (
-          !['superadmin', 'admin', 'staff'].includes(data.role)
-        ) {
-          console.warn(
-            'Invalid staff role:',
-            data.role
-          )
+        const invite = candidates[0]
 
-          return null
+        // Optimistic role so the panel opens even if linking hits rules.
+        this.role = invite.role
+
+        // 3) Create canonical UID doc so firestore.rules
+        // (which resolves admin via staff/{uid}) recognizes the user.
+        // Self-registration is restricted to `staff` in rules to prevent
+        // privilege escalation — an existing admin upgrades to `admin`.
+        const uidRef = doc(db, 'staff', this.user.uid)
+        let requestedRole = invite.role
+        const tryLink = async (roleToWrite) => {
+          await setDoc(
+            uidRef,
+            {
+              githubUsername,
+              displayName: invite.displayName || githubUsername,
+              role: roleToWrite,
+              active: true,
+              uid: this.user.uid,
+              createdBy: invite.createdBy || null,
+              createdAt: invite.createdAt || serverTimestamp(),
+              linkedFrom: invite.id,
+              linkedAt: serverTimestamp(),
+              lastLoginAt: serverTimestamp()
+            },
+            { merge: true }
+          )
         }
 
-        this.role = data.role
+        try {
+          await tryLink(requestedRole)
+        } catch (linkError) {
+          // If rules only allow self-claim as `staff`, retry as staff.
+          // The invite stays as `admin` so an admin can upgrade later.
+          if (requestedRole === 'admin' && linkError?.code === 'permission-denied') {
+            try {
+              await tryLink('staff')
+              this.role = 'staff'
+              console.warn(
+                `Invite @${githubUsername} is admin; claimed as staff. Ask an existing admin to upgrade to admin in Accounts.`
+              )
+            } catch (retryError) {
+              console.warn('UID link failed (will retry next login):', retryError)
+            }
+          } else {
+            console.warn('UID link failed (will retry next login):', linkError)
+          }
+        }
+
+        // 4) Mark the invite as claimed (best-effort).
+        try {
+          await updateDoc(invite.ref, {
+            uid: this.user.uid,
+            linkedUid: this.user.uid,
+            claimedAt: serverTimestamp()
+          })
+        } catch {
+          // ignore — UID doc is the source of truth
+        }
 
         return this.role
-
       } catch (error) {
         console.error('Fetch role error:', error)
 
