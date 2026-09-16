@@ -1,20 +1,27 @@
 import { defineStore } from 'pinia'
 import {
   collection,
-  addDoc,
+  doc,
+  getDoc,
+  getDocs,
   serverTimestamp,
-  query,
-  where,
-  getDocs
+  setDoc
 } from 'firebase/firestore'
 
 import { db } from '@/firebase/config'
 
 // Verify via GitHub API that the repository exists and is public.
 // Throws with a user-friendly message when it does not.
+// Error codes: INVALID, NOT_FOUND, PRIVATE, RATE_LIMITED, NETWORK, UNKNOWN.
+// RATE_LIMITED/NETWORK are non-blocking — the submission goes through
+// flagged unverified and judges confirm via the repo link (school
+// networks share one public IP, so the 60/hr unauthenticated quota
+// exhausts fast).
 async function verifyRepositoryExists(owner, repo) {
   if (!owner || !repo) {
-    throw new Error('Please provide a valid GitHub repository URL.')
+    const err = new Error('Please provide a valid GitHub repository URL.')
+    err.code = 'INVALID'
+    throw err
   }
 
   let response
@@ -30,31 +37,41 @@ async function verifyRepositoryExists(owner, repo) {
     )
     clearTimeout(timeout)
   } catch {
-    throw new Error(
+    const err = new Error(
       'Could not verify the repository. Check your connection and try again.'
     )
+    err.code = 'NETWORK'
+    throw err
   }
 
   if (response.status === 404) {
-    throw new Error(
+    const err = new Error(
       'Repository not found. Make sure the URL is correct and the repository is public.'
     )
+    err.code = 'NOT_FOUND'
+    throw err
   }
 
   if (response.status === 403) {
-    throw new Error(
+    const err = new Error(
       'Repository verification is rate-limited right now. Please wait a minute and try again.'
     )
+    err.code = 'RATE_LIMITED'
+    throw err
   }
 
   if (!response.ok) {
-    throw new Error('Could not verify the repository. Please try again.')
+    const err = new Error('Could not verify the repository. Please try again.')
+    err.code = 'UNKNOWN'
+    throw err
   }
 
   const data = await response.json()
 
   if (data.private) {
-    throw new Error('Repository must be public so judges can review it.')
+    const err = new Error('Repository must be public so judges can review it.')
+    err.code = 'PRIVATE'
+    throw err
   }
 }
 
@@ -69,6 +86,20 @@ export const useSubmissionStore = defineStore('submission', {
   }),
 
   actions: {
+    async fetchMine(user) {
+      if (!user) {
+        this.submission = null
+        return null
+      }
+      try {
+        const snap = await getDoc(doc(db, 'submissions', user.uid))
+        this.submission = snap.exists() ? { id: snap.id, ...snap.data() } : null
+        return this.submission
+      } catch (error) {
+        console.error('Fetch own submission error:', error)
+        throw error
+      }
+    },
     async fetchAll() {
       this.isLoading = true
       this.error = null
@@ -114,26 +145,48 @@ export const useSubmissionStore = defineStore('submission', {
           )
         }
 
-        // Verify the repository exists and is publicly accessible
+        // Verify the repository exists and is publicly accessible.
+        // Rate-limit/network failures are non-blocking (school networks
+        // share one public IP, so the 60/hr quota exhausts fast) — the
+        // submission goes through flagged unverified and judges confirm
+        // via the repo link. Definitive failures (not-found/private/bad
+        // URL) still block here.
         const [, owner, repo] =
           form.repositoryUrl
             .trim()
             .replace(/\/$/, '')
             .match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)$/) || []
 
-        await verifyRepositoryExists(owner, repo)
+        let repoVerified = false
+        let repoCheckNote = ''
+        try {
+          await verifyRepositoryExists(owner, repo)
+          repoVerified = true
+          repoCheckNote = 'Pre-check passed (client-side).'
+        } catch (precheckError) {
+          if (
+            precheckError?.code === 'RATE_LIMITED' ||
+            precheckError?.code === 'NETWORK'
+          ) {
+            console.warn(
+              'Repo pre-check skipped, judges verify via link:',
+              precheckError
+            )
+            repoCheckNote =
+              'Pre-check skipped (rate-limited); verify link manually.'
+          } else {
+            throw precheckError
+          }
+        }
 
-        // Check if this user already submitted
+        // One submission per user: doc ID = Firebase Auth UID.
+        // Second submit fails (doc already exists) both client-side
+        // (check below) and server-side (rules: create only + docId == uid).
         const submissionsRef = collection(db, 'submissions')
+        const ownRef = doc(submissionsRef, user.uid)
+        const ownSnap = await getDoc(ownRef)
 
-        const existingQuery = query(
-          submissionsRef,
-          where('userId', '==', user.uid)
-        )
-
-        const existingSnapshot = await getDocs(existingQuery)
-
-        if (!existingSnapshot.empty) {
+        if (ownSnap.exists()) {
           throw new Error(
             'You have already submitted a project.'
           )
@@ -151,8 +204,8 @@ export const useSubmissionStore = defineStore('submission', {
           throw new Error('Please add at least one team member.')
         }
 
-        // Save submission
-        const docRef = await addDoc(submissionsRef, {
+        // Save submission (doc ID = UID enforces one-per-user).
+        await setDoc(ownRef, {
           userId: user.uid,
 
           githubUsername:
@@ -171,20 +224,24 @@ export const useSubmissionStore = defineStore('submission', {
           membersName: members.join(', '),
           description: form.description.trim(),
           repositoryUrl: form.repositoryUrl.trim(),
-          repoVerified: true,
+          // Client-side pre-check result only (Spark: no server trigger).
+          // Judges confirm via the repo link for unverified entries.
+          repoVerified,
+          repoCheckNote,
           techStack: form.techStack.trim(),
           submittedAt: serverTimestamp(),
 
         })
 
         this.submission = {
-          id: docRef.id,
+          id: user.uid,
+          userId: user.uid,
           ...form
         }
 
         this.success = true
 
-        return docRef
+        return this.submission
       } catch (error) {
         console.error('Submission error:', error)
 

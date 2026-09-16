@@ -1,103 +1,209 @@
 rules_version = '2';
 
-// CSO Repository — Firestore Security Rules
-// Users: read own submissions, create own submission.
-// Staff/admins: canonical role doc is `staff/{uid}`
-// (document ID = Firebase Auth UID). Invites created via UI use a
-// random doc ID with { githubUsername, uid: null } and are linked to
-// a canonical UID doc on first GitHub login (see stores/auth.js).
+// CSO Repository — Firestore Security Rules.
+//
+// How login works (see src/stores/auth.js): after GitHub sign-in the
+// client queries `staff` by `githubUsername + active`, takes the role,
+// then links a canonical UID doc (`staff/{uid}`). Dashboard and
+// submissions reads resolve via that UID doc (isStaff/isAdmin), so the
+// link step is what makes Fetch submissions work after login.
+// Rules CANNOT know the caller's GitHub username, so the login query
+// requires blanket signed-in reads on `staff` (any signed-in user,
+// participants included, can list the roster).
+//
+// Invites live in `staff_invites/{usernameLower}` (admin-only writes,
+// staff-only reads so non-staff cannot enumerate them). UID-doc creation
+// is invite-gated: allowed ONLY if a matching active invite exists (role
+// pinned to the invite — no self-promotion, no open registration).
+// Hijack requires guessing an invited username AND racing the owner.
+//
+// Admin account management (see src/stores/staff.js) uses both `staff`
+// and the invite allowlist. Submissions use one-doc-per-user
+// (`submissions/{uid}`).
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    // =========================
+    // ROLE CHECKS
+    // =========================
 
-    function staffData(uid) {
-      return get(/databases/$(database)/documents/staff/$(uid)).data;
-    }
-
-    function hasStaffDoc(uid) {
-      return exists(/databases/$(database)/documents/staff/$(uid));
-    }
-
-    // Any staff/admin/superadmin whose canonical UID doc is active.
     function isStaff() {
-      return isSignedIn()
-        && hasStaffDoc(request.auth.uid)
-        && staffData(request.auth.uid).role in ['staff', 'admin', 'superadmin']
-        && staffData(request.auth.uid).active != false;
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.active != false
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.role in ['staff', 'admin', 'superadmin'];
     }
 
-    // All admin rights resolve from the canonical UID doc.
     function isAdmin() {
-      return isSignedIn()
-        && hasStaffDoc(request.auth.uid)
-        && staffData(request.auth.uid).role in ['admin', 'superadmin']
-        && staffData(request.auth.uid).active != false;
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.active != false
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.role in ['admin', 'superadmin'];
     }
 
-    // First-login self-claim: any signed-in user may create their own
-    // canonical doc once. Restricted to `staff` to prevent
-    // self-promotion to admin — an existing admin upgrades to `admin`.
+    function isSuperadmin() {
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.active != false
+        && get(
+          /databases/$(database)/documents/staff/$(request.auth.uid)
+        ).data.role == 'superadmin';
+    }
+
+    function inviteData(username) {
+      return get(
+        /databases/$(database)/documents/staff_invites/$(username)
+      ).data;
+    }
+
+    function hasInvite(username) {
+      return exists(
+        /databases/$(database)/documents/staff_invites/$(username)
+      );
+    }
+
+    // Invite must exist, match the requested role, and be active.
+    // Role is pinned to the invite so callers cannot self-promote.
+    // get()/exists() run server-side inside rules — the caller needs
+    // no read access to staff_invites, so invites stay unlistable by
+    // non-staff while still gateable here.
+    function hasValidInvite(username, role) {
+      return hasInvite(username)
+        && inviteData(username).githubUsername == username
+        && inviteData(username).role == role
+        && inviteData(username).role in ['staff', 'admin']
+        && inviteData(username).active != false;
+    }
+
+    // Invite-gated self-claim for the login link step: only a username
+    // with an active invite may create its own canonical UID doc, with
+    // the invited role. No invite -> denied -> fail closed.
     function isSelfUidCreate(docId) {
-      return isSignedIn()
+      return request.auth != null
         && docId == request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.githubUsername is string
-        && request.resource.data.role == 'staff'
-        && request.resource.data.active == true;
+        && request.resource.data.role in ['staff', 'admin']
+        && request.resource.data.active == true
+        && hasValidInvite(
+          request.resource.data.githubUsername,
+          request.resource.data.role
+        );
     }
 
-    // Marking a username invite as claimed: uid goes null -> own UID,
-    // role/githubUsername/active must stay unchanged.
-    function isSelfClaim() {
-      return isSignedIn()
-        && resource.data.uid == null
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.githubUsername == resource.data.githubUsername
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.active == resource.data.active;
-    }
 
-    // Owner presence touch on their own canonical doc: protected fields
-    // (uid/role/githubUsername/active) must stay unchanged.
-    function isOwnLoginTouch(docId) {
-      return isSignedIn()
-        && docId == request.auth.uid
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.githubUsername == resource.data.githubUsername
-        && request.resource.data.active == resource.data.active;
-    }
+    // =========================
+    // STAFF
+    // =========================
 
-    match /submissions/{docId} {
-      // Staff/admins read all (dashboard); users read own only
-      // (required by the duplicate-check query in submitProject).
-      allow read: if isStaff()
-        || (isSignedIn() && resource.data.userId == request.auth.uid);
+    match /staff/{staffId} {
 
-      // Signed-in users create only their own submission.
-      allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+      // Blanket signed-in read (NOT own-or-admin): the login query
+      // filters by githubUsername, which rules cannot verify per-doc,
+      // so per-document ownership is inexpressible here. Consequence:
+      // any signed-in user can list the staff roster.
+      allow read: if request.auth != null;
 
-      // Only admins may update/delete (e.g. status changes).
-      allow update, delete: if isAdmin();
-    }
+      // Admin can create staff. Invited users create their own UID doc
+      // once via invite-gated self-claim (the login link step — without
+      // it, isStaff() stays false and Fetch submissions is denied).
+      allow create: if isAdmin() || isSelfUidCreate(staffId);
 
-    match /staff/{docId} {
-      // Any signed-in user can look up roles (needed at login
-      // to resolve staff membership by UID or GitHub username).
-      allow read: if isSignedIn();
-
-      // Admins create invites; users create their own UID doc once.
-      allow create: if isAdmin() || isSelfUidCreate(docId);
+      // Admin can update staff (except superadmin docs, which are
+      // untouchable even by admins). Any signed-in user may touch ONLY
+      // lastLoginAt on any staff doc — the login presence update.
       allow update: if (isAdmin() && resource.data.role != 'superadmin')
-        || isSelfClaim()
-        || isOwnLoginTouch(docId);
+        || (request.auth != null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLoginAt']));
+
+      // Admin can remove staff (except superadmin — the Accounts UI
+      // Remove button runs as admin, so superadmin-only delete would
+      // break it with permission-denied).
       allow delete: if isAdmin() && resource.data.role != 'superadmin';
+    }
+
+
+    // =========================
+    // STAFF INVITES
+    // =========================
+
+    // Invite allowlist used by the Accounts admin UI.
+    // Doc ID = lowercase GitHub username. Staff-only reads so
+    // participants cannot enumerate invites (the link-step gate checks
+    // existence server-side, no client read needed).
+    match /staff_invites/{username} {
+      allow read: if isStaff();
+      allow create, update, delete: if isAdmin();
+    }
+
+
+    // =========================
+    // SUBMISSIONS
+    // =========================
+
+    match /submissions/{submissionId} {
+
+      // Staff, Admin and Superadmin can view submissions.
+      // Owners can read their own UID doc — `submissionId == auth.uid`
+      // first so owners can also read a not-yet-existing doc
+      // (`resource.data` errors on missing docs, which broke
+      // first-time submits before). Legacy random-ID docs fall back
+      // to the userId check.
+      allow read: if request.auth != null
+        && (
+          isStaff()
+          || submissionId == request.auth.uid
+          || (resource != null && resource.data.userId == request.auth.uid)
+        );
+
+      // One submission per user: doc ID must equal the author's UID.
+      // `create` only matches non-existing docs, so a second submit is
+      // rejected server-side even via direct API calls. repositoryUrl
+      // format is enforced (public-ness is checked client-side).
+      allow create: if request.auth != null
+        && submissionId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.repositoryUrl is string
+        && request.resource.data.repositoryUrl.matches('https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?');
+
+      // Admin and Superadmin can update submissions.
+      allow update: if isAdmin();
+
+      // Only Superadmin can delete submissions.
+      allow delete: if isSuperadmin();
+    }
+
+
+    // =========================
+    // USERS
+    // =========================
+
+    match /users/{userId} {
+
+      // User can access own profile.
+      // Admin and Superadmin can access users.
+      allow read, write: if request.auth != null
+        && (
+          request.auth.uid == userId
+          || isAdmin()
+        );
     }
   }
 }

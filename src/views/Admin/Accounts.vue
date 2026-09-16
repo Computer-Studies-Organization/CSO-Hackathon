@@ -35,9 +35,19 @@ const addAccount = async () => {
   notice.value = null
   try {
     await staffStore.addStaff(authStore.user, form)
-    notice.value = { type: 'success', text: `@${form.githubUsername} added as ${form.role}.` }
+    notice.value = { type: 'success', text: `@${form.githubUsername} invited as ${form.role}. They link on first GitHub sign-in.` }
     form.githubUsername = ''
     form.role = 'staff'
+  } catch {
+    // error already in store
+  }
+}
+
+const migrateLegacy = async () => {
+  notice.value = null
+  try {
+    const count = await staffStore.migrateLegacyInvites()
+    notice.value = { type: 'success', text: `Migrated ${count} legacy invite(s) to the invite allowlist.` }
   } catch {
     // error already in store
   }
@@ -122,9 +132,12 @@ const formatDate = (ts) => {
       </form>
 
       <p class="mt-3 text-xs text-gray-500">
+        Invite-only: accounts are created by GitHub username and link on first sign-in.
+        Users without an invite are rejected — no open registration.
         <span class="font-semibold text-gray-400">Staff</span> can view Dashboard + Submissions.
         <span class="font-semibold text-gray-400">Admin</span> and
         <span class="font-semibold text-gray-400">Superadmin</span> can also manage accounts.
+        <button @click="migrateLegacy" type="button" class="underline hover:text-gray-300">Migrate legacy invites</button>
       </p>
 
       <div
@@ -196,7 +209,7 @@ const formatDate = (ts) => {
             </p>
             <p class="text-xs text-gray-400">
               Added {{ formatDate(member.createdAt) }}
-              {{ member.uid ? '· linked' : '· not yet signed in' }}
+              {{ (member.uid || member.linked) ? '· linked' : '· not yet signed in' }}
             </p>
           </div>
           <span

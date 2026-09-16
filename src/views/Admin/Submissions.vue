@@ -149,6 +149,20 @@ const memberList = (s) =>
                 >
                   ✓ Verified
                 </p>
+                <p
+                  v-else-if="!s.repoCheckedAt"
+                  class="mt-1 text-[11px] font-bold text-yellow-300 whitespace-nowrap"
+                  :title="s.repoCheckNote || ''"
+                >
+                  ⚠ {{ s.repoCheckNote || 'Unverified — check link' }}
+                </p>
+                <p
+                  v-else
+                  class="mt-1 text-[11px] font-bold text-red-300 whitespace-nowrap"
+                  :title="s.repoCheckNote || ''"
+                >
+                  ⚠ {{ s.repoCheckNote || 'Not verified' }}
+                </p>
               </td>
             </tr>
           </tbody>

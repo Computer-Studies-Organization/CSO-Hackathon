@@ -1,5 +1,5 @@
 <script setup>
-import { reactive } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import RudeRabbit from '@/components/uiverse_component/rude-rabbit.vue'
@@ -20,6 +20,31 @@ const form = reactive({
 })
 
 const MAX_MEMBERS = 5
+
+// One submission per user: check on mount and when auth changes.
+const alreadySubmitted = ref(false)
+const checkingExisting = ref(true)
+const submittedProject = computed(() => submissionStore.submission)
+
+const checkExisting = async () => {
+  if (!authStore.isAuthenticated) {
+    alreadySubmitted.value = false
+    checkingExisting.value = false
+    return
+  }
+  checkingExisting.value = true
+  try {
+    const mine = await submissionStore.fetchMine(authStore.user)
+    alreadySubmitted.value = !!mine
+  } catch {
+    alreadySubmitted.value = false
+  } finally {
+    checkingExisting.value = false
+  }
+}
+
+onMounted(checkExisting)
+watch(() => authStore.isAuthenticated, checkExisting)
 
 const addMember = () => {
   if (form.members.length < MAX_MEMBERS) {
@@ -77,6 +102,9 @@ const submitProject = async () => {
     )
 
     alert('Project submitted successfully!')
+
+    alreadySubmitted.value = true
+    await submissionStore.fetchMine(authStore.user).catch(() => {})
 
     form.groupName = ''
     form.projectName = ''
@@ -435,6 +463,59 @@ const submitProject = async () => {
       </p>
 
 
+      <!-- Checking existing submission -->
+      <div
+        v-if="checkingExisting"
+        class="mt-6 p-4 rounded-2xl
+               bg-white/5
+               border border-white/10"
+      >
+        <p class="text-sm text-gray-400">
+          Checking your submission…
+        </p>
+      </div>
+
+
+      <!-- Already submitted — one per user -->
+      <div
+        v-else-if="alreadySubmitted"
+        class="mt-6 p-6 rounded-2xl
+               bg-green-500/10
+               border border-green-500/20"
+      >
+        <p class="text-sm font-bold text-green-300">
+          ✓ Project already submitted
+        </p>
+
+        <p class="mt-2 text-sm text-gray-300">
+          <span class="font-semibold text-white">
+            {{ submittedProject?.projectName || 'Your project' }}
+          </span>
+          <span v-if="submittedProject?.groupName">
+            · {{ submittedProject.groupName }}
+          </span>
+        </p>
+
+        <a
+          v-if="submittedProject?.repositoryUrl"
+          :href="submittedProject.repositoryUrl"
+          target="_blank"
+          rel="noopener"
+          class="mt-2 inline-block text-xs font-bold text-yellow-300 hover:text-yellow-200 underline"
+        >
+          {{ submittedProject.repositoryUrl }} ↗
+        </a>
+
+        <p class="mt-3 text-xs text-gray-400 leading-relaxed">
+          One submission per account. If you need changes,
+          please contact the organizers.
+        </p>
+      </div>
+
+
+      <template v-else>
+
+
       <!-- User -->
       <div
         class="mt-6 flex items-center gap-4
@@ -717,6 +798,7 @@ const submitProject = async () => {
         </button>
 
       </form>
+      </template>
 
     </template>
 
