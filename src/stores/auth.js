@@ -204,6 +204,7 @@ export const useAuthStore = defineStore('auth', {
         const snapshot =
           await getDocs(staffQuery)
 
+          
         if (snapshot.empty) {
           // console.warn(
           //   `No active staff account found for @${githubUsername}`
