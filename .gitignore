@@ -20,6 +20,9 @@ coverage
 
 # Firebase
 .firebase/
+firebase.json
+firestore.rules
+firestore.indexes.json
 firebase-debug.log
 firestore-debug.log
 database-debug.log
