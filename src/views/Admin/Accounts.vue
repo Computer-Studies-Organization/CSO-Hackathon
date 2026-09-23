@@ -134,7 +134,7 @@ const formatDate = (ts) => {
       <p class="mt-3 text-xs text-gray-500">
         Invite-only: accounts are created by GitHub username and link on first sign-in.
         Users without an invite are rejected — no open registration.
-        <span class="font-semibold text-gray-400">Staff</span> can view Dashboard + Submissions.
+        <span class="font-semibold text-gray-400">Staff</span> can view Dashboard + Repository Submissions + Video Submissions.
         <span class="font-semibold text-gray-400">Admin</span> and
         <span class="font-semibold text-gray-400">Superadmin</span> can also manage accounts.
         <button @click="migrateLegacy" type="button" class="underline hover:text-gray-300">Migrate legacy invites</button>

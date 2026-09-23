@@ -26,7 +26,7 @@ onMounted(() => {
       <div class="container mx-auto py-4 px-6 flex justify-between items-center gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <img src="/assets/CSOLOGO-removebg-preview.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
-          <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST  PRE-HAKATHON 2026</h1>
+          <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST 2026 Pre-Hacktoberfest Edition</h1>
       </div>
         <!-- Desktop nav -->
         <nav class="hidden md:flex items-center space-x-6 justify-center">
@@ -35,7 +35,10 @@ onMounted(() => {
           </RouterLink>
 
           <RouterLink to="/submit" active-class="underline font-bold">
-            Submit
+            Repository Submission
+          </RouterLink>
+          <RouterLink to="/videosubmission" active-class="underline font-bold">
+            Video Submission
           </RouterLink>
 
           <RouterLink to="/criteria" active-class="underline font-bold">
@@ -102,8 +105,12 @@ onMounted(() => {
           Home
         </RouterLink>
         <RouterLink to="/submit" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
-          Submit
+          Repository Submission
         </RouterLink>
+        <RouterLink to="/videosubmission" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
+          Video Submission
+        </RouterLink>
+       
         <RouterLink to="/criteria" active-class="font-bold text-white" class="px-3 py-2.5 rounded-lg text-gray-300 hover:bg-white/5">
           Criteria
         </RouterLink>
@@ -197,7 +204,14 @@ onMounted(() => {
               to="/submit"
               class="text-gray-400 hover:text-white transition"
             >
-              Submit Your Project
+              Repository Submission
+            </RouterLink>
+
+            <RouterLink
+              to="/videosubmission"
+              class="text-gray-400 hover:text-white transition"
+            >
+              Video Submission
             </RouterLink>
 
             <RouterLink

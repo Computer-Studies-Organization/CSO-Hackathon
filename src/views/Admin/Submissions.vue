@@ -47,7 +47,7 @@ const memberList = (s) =>
         Admin
       </p>
       <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mt-2">
-        Submissions
+        Repository Submissions
       </h1>
       <p class="mt-3 max-w-2xl text-base md:text-lg leading-relaxed text-gray-400">
         {{ submissions.length }} project{{ submissions.length === 1 ? '' : 's' }} submitted so far.

@@ -2,11 +2,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import SubmitView from '../views/SubmitView.vue'
 import CriteriaView from '../views/CriteriaView.vue'
+import SubmitVideoView from '../views/SubmitVideoView.vue'
 import LoginView from '../views/Auth/Login.vue'
 import AdminLayout from '../views/Admin/layout.vue'
 import AdminLogin from '../views/Admin/Login.vue'
 import AdminDashboard from '../views/Admin/Dashboard.vue'
 import AdminSubmissions from '../views/Admin/Submissions.vue'
+import AdminVideos from '../views/Admin/Videos.vue'
 import AdminAccounts from '../views/Admin/Accounts.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -62,23 +64,33 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'HomeView',
+      name: 'Home',
       component: HomeView,
+      meta: { title: 'Home' },
+    },
+    {
+      path: '/videosubmission',
+      name: 'VideoSubmission',
+      component: SubmitVideoView,
+      meta: { title: 'Video Submission' },
     },
     {
       path: '/submit',
-      name: 'SubmitView',
+      name: 'RepositorySubmission',
       component: SubmitView,
+      meta: { title: 'Repository Submission' },
     },
     {
       path: '/criteria',
-      name: 'CriteriaView',
+      name: 'Criteria',
       component: CriteriaView,
+      meta: { title: 'Criteria' },
     },
     {
       path: '/login',
-      name: 'LoginView',
-      component: LoginView 
+      name: 'Login',
+      component: LoginView,
+      meta: { title: 'Sign In' },
     },
     {
       path: '/admin/login',
@@ -99,9 +111,15 @@ const router = createRouter({
         },
         {
           path: 'submissions',
-          name: 'AdminSubmissions',
+          name: 'AdminRepositorySubmissions',
           component: AdminSubmissions,
-          meta: { title: 'Submissions' },
+          meta: { title: 'Repository Submissions' },
+        },
+        {
+          path: 'videos',
+          name: 'AdminVideoSubmissions',
+          component: AdminVideos,
+          meta: { title: 'Video Submissions' },
         },
         {
           path: 'accounts',

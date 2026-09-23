@@ -19,7 +19,7 @@ rules_version = '2';
 //
 // Admin account management (see src/stores/staff.js) uses both `staff`
 // and the invite allowlist. Submissions use one-doc-per-user
-// (`submissions/{uid}`).
+// (`submissions/{uid}`, `video_submissions/{uid}`).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -187,6 +187,53 @@ service cloud.firestore {
       allow update: if isAdmin();
 
       // Only Superadmin can delete submissions.
+      allow delete: if isSuperadmin();
+    }
+
+
+    // =========================
+    // VIDEO SUBMISSIONS
+    // =========================
+
+    match /video_submissions/{submissionId} {
+
+      // Staff/Admin/Superadmin can view all (judging).
+      // Owners read their own UID doc — `submissionId == auth.uid`
+      // first so first-time check works on a not-yet-existing doc
+      // (same pattern as `submissions`).
+      allow read: if request.auth != null
+        && (
+          isStaff()
+          || submissionId == request.auth.uid
+          || (resource != null && resource.data.userId == request.auth.uid)
+        );
+
+      // One video per user: doc ID must equal the author's UID.
+      // `create` only matches non-existing docs → second submit
+      // rejected server-side. Fields mirror the repo submission.
+      // videoUrl must be an embeddable preview URL (not a raw /view share link).
+      // driveUrl is intentionally not accepted — keeps Drive share links out of Firestore.
+      allow create: if request.auth != null
+        && submissionId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.groupName is string
+        && request.resource.data.videoUrl is string
+        && request.resource.data.videoUrl.matches('https://drive\\.google\\.com/file/d/[A-Za-z0-9_-]+/preview')
+        && !('driveUrl' in request.resource.data);
+
+      // Admin and Superadmin can update submissions (e.g. review flags).
+      // driveUrl / raw share links still cannot be introduced.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['groupName', 'description', 'projectName', 'members',
+                       'membersName', 'repositoryUrl', 'techStack', 'videoUrl',
+                       'githubUsername', 'email', 'repoVerified', 'repoCheckNote',
+                       'reviewedAt', 'reviewedBy', 'notes'])
+        && !('driveUrl' in request.resource.data)
+        && (!('videoUrl' in request.resource.data)
+            || request.resource.data.videoUrl.matches('https://drive\\.google\\.com/file/d/[A-Za-z0-9_-]+/preview'));
+
+      // Only Superadmin can delete video submissions.
       allow delete: if isSuperadmin();
     }
 

@@ -2,16 +2,32 @@
 import { computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSubmissionStore } from '@/stores/submission'
+import { useVideoSubmissionStore } from '@/stores/videosubmission'
 
 const submissionStore = useSubmissionStore()
+const videoStore = useVideoSubmissionStore()
 
 onMounted(() => {
   submissionStore.fetchAll().catch(() => {})
+  videoStore.fetchAll().catch(() => {})
 })
 
 const submissions = computed(() => submissionStore.submissions)
+const videos = computed(() => videoStore.submissions)
 const isLoading = computed(() => submissionStore.isLoading)
-const error = computed(() => submissionStore.error)
+const isVideoLoading = computed(() => videoStore.isLoading)
+const error = computed(() => submissionStore.error || videoStore.error)
+
+const isSameDay = (ts) => {
+  const d = ts?.toDate?.()
+  if (!d) return false
+  const now = new Date()
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  )
+}
 
 const totalCount = computed(() => submissions.value.length)
 
@@ -19,18 +35,15 @@ const uniqueTeams = computed(
   () => new Set(submissions.value.map((s) => s.userId)).size
 )
 
-const todayCount = computed(() => {
-  const now = new Date()
-  return submissions.value.filter((s) => {
-    const d = s.submittedAt?.toDate?.()
-    return (
-      d &&
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate()
-    )
-  }).length
-})
+const todayCount = computed(
+  () => submissions.value.filter((s) => isSameDay(s.submittedAt)).length
+)
+
+const videoTotalCount = computed(() => videos.value.length)
+
+const videoTodayCount = computed(
+  () => videos.value.filter((v) => isSameDay(v.submittedAt)).length
+)
 
 const recentSubmissions = computed(() => submissions.value.slice(0, 5))
 
@@ -42,10 +55,15 @@ const formatDate = (ts) => {
 const displayMembers = (s) =>
   (Array.isArray(s.members) ? s.members.join(', ') : '') || s.membersName || ''
 
-const stats = computed(() => [
-  { label: 'Total Submissions', value: totalCount.value, accent: 'text-yellow-400' },
-  { label: 'Teams Submitted', value: uniqueTeams.value, accent: 'text-purple-400' },
-  { label: 'Submitted Today', value: todayCount.value, accent: 'text-green-400' },
+const repoStats = computed(() => [
+  { label: 'Total Submissions', value: totalCount.value, accent: 'text-yellow-400', loading: isLoading.value },
+  { label: 'Teams Submitted', value: uniqueTeams.value, accent: 'text-purple-400', loading: isLoading.value },
+  { label: 'Submitted Today', value: todayCount.value, accent: 'text-green-400', loading: isLoading.value },
+])
+
+const videoStats = computed(() => [
+  { label: 'Total Videos', value: videoTotalCount.value, accent: 'text-sky-400', loading: isVideoLoading.value },
+  { label: 'Videos Today', value: videoTodayCount.value, accent: 'text-pink-400', loading: isVideoLoading.value },
 ])
 </script>
 
@@ -60,22 +78,47 @@ const stats = computed(() => [
         Dashboard
       </h1>
       <p class="mt-3 max-w-2xl text-base md:text-lg leading-relaxed text-gray-400">
-        Overview of project submissions for ACLC CODEFEST 2026.
+        Overview of repository and video submissions for ACLC CODEFEST 2026 Pre-Hacktoberfest Edition.
       </p>
     </section>
 
-    <!-- Stat Cards -->
-    <section class="grid sm:grid-cols-3 gap-4 mb-8">
-      <div
-        v-for="stat in stats"
-        :key="stat.label"
-        class="rounded-3xl bg-gray-900/80 backdrop-blur-xl border border-white/10
-               shadow-2xl shadow-black/20 p-6 text-white"
-      >
-        <p class="text-sm text-gray-400">{{ stat.label }}</p>
-        <p class="text-4xl font-extrabold tracking-tight mt-2" :class="stat.accent">
-          {{ isLoading ? '…' : stat.value }}
-        </p>
+    <!-- Repo Submission Stats -->
+    <section class="mb-8">
+      <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400 mb-3">
+        Repository Submissions
+      </p>
+      <div class="grid sm:grid-cols-3 gap-4">
+        <div
+          v-for="stat in repoStats"
+          :key="stat.label"
+          class="rounded-3xl bg-gray-900/80 backdrop-blur-xl border border-white/10
+                 shadow-2xl shadow-black/20 p-6 text-white"
+        >
+          <p class="text-sm text-gray-400">{{ stat.label }}</p>
+          <p class="text-4xl font-extrabold tracking-tight mt-2" :class="stat.accent">
+            {{ stat.loading ? '…' : stat.value }}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Video Submission Stats -->
+    <section class="mb-8">
+      <p class="text-sm font-semibold uppercase tracking-wider text-sky-400 mb-3">
+        Video Submissions
+      </p>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div
+          v-for="stat in videoStats"
+          :key="stat.label"
+          class="rounded-3xl bg-gray-900/80 backdrop-blur-xl border border-white/10
+                 shadow-2xl shadow-black/20 p-6 text-white"
+        >
+          <p class="text-sm text-gray-400">{{ stat.label }}</p>
+          <p class="text-4xl font-extrabold tracking-tight mt-2" :class="stat.accent">
+            {{ stat.loading ? '…' : stat.value }}
+          </p>
+        </div>
       </div>
     </section>
 
@@ -98,7 +141,7 @@ const stats = computed(() => [
             Latest
           </p>
           <h2 class="text-2xl md:text-3xl font-extrabold mt-1">
-            Recent Submissions
+            Recent Repository Submissions
           </h2>
         </div>
         <RouterLink

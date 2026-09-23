@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import RudeRabbit from '@/components/uiverse_component/rude-rabbit.vue'
+import AppLoader from '@/components/uiverse_component/apploader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSubmissionStore } from '@/stores/submission'
 
@@ -548,9 +549,25 @@ const submitProject = async () => {
 
       <!-- Submission Form -->
       <form
-        class="mt-6 space-y-5"
+        class="mt-6 space-y-5 relative"
         @submit.prevent="submitProject"
       >
+
+        <!-- AppLoader — full screen; mawala ra kung ok na (isSubmitting = false) -->
+        <Teleport to="body">
+          <div
+            v-if="submissionStore.isSubmitting"
+            class="fixed inset-0 z-[9999] flex flex-col items-center justify-center
+                   bg-black"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <AppLoader />
+            <p class="mt-4 text-sm text-gray-300 text-center px-4">
+              Submitting your project… please wait
+            </p>
+          </div>
+        </Teleport>
 
         <!-- Group Name -->
         <div>

@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard,
   FileText,
+  Video,
   Users,
   ExternalLink,
   LogOut,
@@ -26,8 +27,15 @@ const navItems = [
   },
   {
     to: '/admin/submissions',
-    label: 'Submissions',
+    label: 'Repository',
     icon: FileText,
+    exact: false,
+    roles: ['superadmin', 'admin', 'staff'],
+  },
+  {
+    to: '/admin/videos',
+    label: 'Video',
+    icon: Video,
     exact: false,
     roles: ['superadmin', 'admin', 'staff'],
   },
