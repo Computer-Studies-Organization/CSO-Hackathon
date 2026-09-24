@@ -1,0 +1,12 @@
+{
+  "AllowedOrigins": [
+    "http://localhost:5173",
+    "https://cso-opensource.pages.dev",
+    "https://cso-repository.firebaseapp.com",
+    "https://cso-repository.web.app"
+  ],
+  "AllowedMethods": ["PUT", "GET", "HEAD"],
+  "AllowedHeaders": ["Content-Type", "x-amz-*"],
+  "ExposeHeaders": ["ETag", "Content-Length", "Content-Range"],
+  "MaxAgeSeconds": 3600
+}

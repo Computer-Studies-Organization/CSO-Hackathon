@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "format": "prettier --write --experimental-cli src/"
+    "format": "prettier --write --experimental-cli src/",
+    "test:worker": "npm --prefix worker test",
+    "deploy:worker": "npm --prefix worker run deploy"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

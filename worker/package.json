@@ -1,0 +1,19 @@
+{
+  "name": "cso-videos-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "dry-run": "wrangler deploy --dry-run",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20",
+    "jose": "^6.0.11"
+  },
+  "devDependencies": {
+    "wrangler": "^4.100.0"
+  }
+}

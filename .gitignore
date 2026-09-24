@@ -54,3 +54,6 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Cloudflare local auth (wrangler)
+worker/.cloudflare

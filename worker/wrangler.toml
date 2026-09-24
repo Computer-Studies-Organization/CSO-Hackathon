@@ -1,0 +1,15 @@
+name = "cso-videos"
+main = "src/index.js"
+compatibility_date = "2026-09-24"
+
+# Public playback + presign API
+# Deployed URL: https://cso-videos.<account>.workers.dev
+
+[vars]
+FIREBASE_PROJECT_ID = "cso-repository"
+MAX_UPLOAD_BYTES = "104857600" # 100 MB
+ALLOWED_ORIGINS = "http://localhost:5173,https://cso-opensource.pages.dev,https://cso-repository.firebaseapp.com,https://cso-repository.web.app"
+
+[[r2_buckets]]
+binding = "VIDEOS"
+bucket_name = "cso-video-submissions"

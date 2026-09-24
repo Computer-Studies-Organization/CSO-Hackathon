@@ -1,0 +1,14 @@
+# Copy to .dev.vars for local `wrangler dev` — never commit .dev.vars
+#
+# R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY must be S3 credentials from:
+#   Cloudflare Dashboard → R2 → Manage API Tokens → Create API token
+#   → Object Read & Write → bucket: cso-video-submissions
+# The Access Key ID is 32 chars (NOT a cfut_… Cloudflare API token).
+# Secret Access Key is shown only once at creation.
+#
+# These placeholders are wrong on purpose — local wrangler dev still works
+# for GET /videos (R2 binding); only POST /presign needs real S3 keys.
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=

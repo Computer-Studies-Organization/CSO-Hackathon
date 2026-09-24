@@ -12,15 +12,15 @@ const videoStore = useVideoSubmissionStore()
 const submissionStore = useSubmissionStore()
 const router = useRouter()
 
-// Gikan sa .env (VITE_GAS_WEB_APP_URL) — dili i-hardcode diri
-const GAS_WEB_APP_URL = import.meta.env.VITE_GAS_WEB_APP_URL
+// Cloudflare Worker (R2 presign + public playback) — from .env
+const VIDEO_WORKER_URL = import.meta.env.VITE_VIDEO_WORKER_URL
 
-if (!GAS_WEB_APP_URL) {
-  console.warn('VITE_GAS_WEB_APP_URL is not set in .env')
+if (!VIDEO_WORKER_URL) {
+  console.warn('VITE_VIDEO_WORKER_URL is not set in .env')
 }
 
 const form = reactive({
-  videoFile: null
+  videoFile: null,
 })
 
 const fileName = ref('')
@@ -80,9 +80,9 @@ const handleFileUpload = (event) => {
   const file = event.target.files[0]
 
   if (file) {
-    const maxSize = 50 * 1024 * 1024 // 50MB limit (gi-adjust nato para dili mo-crash ang GAS)
+    const maxSize = 100 * 1024 * 1024 // 100MB — R2 free-tier friendly
     if (file.size > maxSize) {
-      fileError.value = 'Video file size must be less than 50MB.'
+      fileError.value = 'Video file size must be 100MB or less.'
       form.videoFile = null
       fileName.value = ''
       event.target.value = ''
@@ -114,8 +114,8 @@ const submitVideoProject = async () => {
     return
   }
 
-  if (!GAS_WEB_APP_URL) {
-    fileError.value = 'Upload is not configured. Set VITE_GAS_WEB_APP_URL in .env.'
+  if (!VIDEO_WORKER_URL) {
+    fileError.value = 'Upload is not configured. Set VITE_VIDEO_WORKER_URL in .env.'
     return
   }
 
@@ -128,8 +128,8 @@ const submitVideoProject = async () => {
     await videoStore.submitVideo(
       authStore.user,
       { videoFile: form.videoFile },
-      GAS_WEB_APP_URL,
-      repoSubmission.value
+      VIDEO_WORKER_URL,
+      repoSubmission.value,
     )
 
     alert('Video submitted successfully!')
@@ -138,7 +138,6 @@ const submitVideoProject = async () => {
     form.videoFile = null
     fileName.value = ''
     fileError.value = ''
-
   } catch (error) {
     console.error('Video submission failed:', error)
     fileError.value = videoStore.error || 'Failed to upload video.'
@@ -148,20 +147,17 @@ const submitVideoProject = async () => {
 
 <template>
   <main class="container mx-auto px-6 py-10">
-
     <!-- Page Header -->
     <section class="mb-10 text-white">
       <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">
         ACLC CODEFEST 2026
       </p>
 
-      <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mt-2">
-        Submit Your Video
-      </h1>
+      <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mt-2">Submit Your Video</h1>
 
       <p class="mt-4 max-w-2xl text-base md:text-lg leading-relaxed text-gray-400">
-        Showcase your project in action! Upload your demo video here so the judges
-        and the community can see how your system works.
+        Showcase your project in action! Upload your demo video here so the judges and the community
+        can see how your system works.
       </p>
     </section>
 
@@ -170,18 +166,15 @@ const submitVideoProject = async () => {
       class="relative overflow-hidden rounded-3xl bg-gray-900 border border-white/10 shadow-2xl shadow-black/20 p-6 md:p-10 text-white"
     >
       <!-- Decorative glow -->
-      <div class="absolute -right-20 -top-20 w-56 h-56 rounded-full bg-purple-500/10 blur-3xl"></div>
+      <div
+        class="absolute -right-20 -top-20 w-56 h-56 rounded-full bg-purple-500/10 blur-3xl"
+      ></div>
 
       <div class="relative">
-
         <!-- NOT LOGGED IN -->
         <template v-if="!authStore.isAuthenticated">
-          <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">
-            Ready?
-          </p>
-          <h2 class="text-2xl md:text-3xl font-extrabold mt-1">
-            Submit Your Video
-          </h2>
+          <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">Ready?</p>
+          <h2 class="text-2xl md:text-3xl font-extrabold mt-1">Submit Your Video</h2>
           <p class="mt-3 max-w-2xl text-sm md:text-base leading-relaxed text-gray-400">
             Sign in with GitHub to continue with your video submission.
           </p>
@@ -201,28 +194,37 @@ const submitVideoProject = async () => {
           <p class="text-sm font-semibold uppercase tracking-wider text-green-400">
             GitHub Verified
           </p>
-          <h2 class="text-2xl md:text-3xl font-extrabold mt-1">
-            Upload Demonstration Video
-          </h2>
+          <h2 class="text-2xl md:text-3xl font-extrabold mt-1">Upload Demonstration Video</h2>
 
           <!-- Checking existing submission -->
-          <div v-if="checkingExisting || loadingRepo" class="mt-6 p-4 rounded-2xl bg-white/5 border border-white/10">
+          <div
+            v-if="checkingExisting || loadingRepo"
+            class="mt-6 p-4 rounded-2xl bg-white/5 border border-white/10"
+          >
             <p class="text-sm text-gray-400">Checking your submission…</p>
           </div>
 
           <!-- Already submitted video -->
-          <div v-else-if="alreadySubmitted" class="mt-6 p-6 rounded-2xl bg-green-500/10 border border-green-500/20">
+          <div
+            v-else-if="alreadySubmitted"
+            class="mt-6 p-6 rounded-2xl bg-green-500/10 border border-green-500/20"
+          >
             <p class="text-sm font-bold text-green-300">✓ Video already submitted</p>
             <p class="mt-3 text-xs text-gray-400 leading-relaxed">
-              You have already uploaded a video for your group. If you need changes, please contact the organizers.
+              You have already uploaded a video for your group. If you need changes, please contact
+              the organizers.
             </p>
           </div>
 
           <!-- No repo submission yet -->
-          <div v-else-if="!repoSubmission" class="mt-6 p-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
+          <div
+            v-else-if="!repoSubmission"
+            class="mt-6 p-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/20"
+          >
             <p class="text-sm font-bold text-yellow-300">Repository submission required</p>
             <p class="mt-2 text-xs text-gray-400 leading-relaxed">
-              Submit your project repository first — group name and details will be mirrored from that submission.
+              Submit your project repository first — group name and details will be mirrored from
+              that submission.
             </p>
             <RouterLink
               to="/submit"
@@ -234,7 +236,9 @@ const submitVideoProject = async () => {
 
           <template v-else>
             <!-- User Info -->
-            <div class="mt-6 flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+            <div
+              class="mt-6 flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10"
+            >
               <img
                 v-if="authStore.user?.photoURL"
                 :src="authStore.user.photoURL"
@@ -243,9 +247,11 @@ const submitVideoProject = async () => {
               />
               <div>
                 <p class="font-semibold">
-                  {{ authStore.githubUsername
-                    ? '@' + authStore.githubUsername
-                    : (authStore.user?.displayName || 'GitHub User') }}
+                  {{
+                    authStore.githubUsername
+                      ? '@' + authStore.githubUsername
+                      : authStore.user?.displayName || 'GitHub User'
+                  }}
                 </p>
                 <p v-if="authStore.user?.email" class="text-xs text-gray-400">
                   {{ authStore.user.email }}
@@ -291,13 +297,11 @@ const submitVideoProject = async () => {
 
             <!-- Video Form -->
             <form class="mt-8 space-y-6 relative" @submit.prevent="submitVideoProject">
-
               <!-- AppLoader — full screen; mawala ra kung ok na (isSubmitting = false) -->
               <Teleport to="body">
                 <div
                   v-if="videoStore.isSubmitting"
-                  class="fixed inset-0 z-[9999] flex flex-col items-center justify-center
-                         bg-black"
+                  class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black"
                   aria-live="polite"
                   aria-busy="true"
                 >
@@ -310,13 +314,15 @@ const submitVideoProject = async () => {
 
               <!-- Video Upload Drag & Drop Area -->
               <div>
-                <label class="block text-sm font-semibold mb-2">
-                  Upload Video Demo
-                </label>
+                <label class="block text-sm font-semibold mb-2"> Upload Video Demo </label>
 
                 <div
                   class="relative flex flex-col items-center justify-center w-full h-48 rounded-xl border-2 border-dashed transition-colors"
-                  :class="fileName ? 'border-purple-500 bg-purple-500/5' : 'border-gray-600 bg-black/30 hover:border-purple-400 hover:bg-black/50'"
+                  :class="
+                    fileName
+                      ? 'border-purple-500 bg-purple-500/5'
+                      : 'border-gray-600 bg-black/30 hover:border-purple-400 hover:bg-black/50'
+                  "
                 >
                   <input
                     type="file"
@@ -326,29 +332,52 @@ const submitVideoProject = async () => {
                   />
 
                   <div v-if="!fileName" class="text-center px-4">
-                    <svg class="mx-auto h-10 w-10 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    <svg
+                      class="mx-auto h-10 w-10 text-gray-400 mb-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                      />
                     </svg>
                     <p class="text-sm text-gray-300 font-semibold">Click or drag a video here</p>
-                    <p class="text-xs text-gray-500 mt-1">MP4, WebM (Max 50MB)</p>
+                    <p class="text-xs text-gray-500 mt-1">MP4, WebM (Max 100MB)</p>
                   </div>
 
                   <div v-else class="text-center px-4 z-20 pointer-events-none">
-                    <svg class="mx-auto h-10 w-10 text-purple-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    <svg
+                      class="mx-auto h-10 w-10 text-purple-400 mb-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
                     </svg>
-                    <p class="text-sm font-bold text-purple-300 truncate max-w-[200px] md:max-w-xs">{{ fileName }}</p>
+                    <p class="text-sm font-bold text-purple-300 truncate max-w-[200px] md:max-w-xs">
+                      {{ fileName }}
+                    </p>
                     <p class="text-xs text-gray-400 mt-1">Click to change file</p>
                   </div>
                 </div>
 
-                <p v-if="fileError" class="mt-2 text-xs text-red-400">
-                  ⚠ {{ fileError }}
-                </p>
+                <p v-if="fileError" class="mt-2 text-xs text-red-400">⚠ {{ fileError }}</p>
               </div>
 
               <!-- Submit Error from Store -->
-              <div v-if="videoStore.error" class="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+              <div
+                v-if="videoStore.error"
+                class="p-4 rounded-xl bg-red-500/10 border border-red-500/20"
+              >
                 <p class="text-xs text-red-200 leading-relaxed">
                   {{ videoStore.error }}
                 </p>
