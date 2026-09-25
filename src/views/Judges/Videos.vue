@@ -300,9 +300,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <div
           class="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-white/10"
         >
-          <p class="text-sm font-semibold text-white truncate">
+          <!-- <p class="text-sm font-semibold text-white truncate">
             {{ theater.title }}
-          </p>
+          </p> -->
           <button
             type="button"
             class="shrink-0 p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
