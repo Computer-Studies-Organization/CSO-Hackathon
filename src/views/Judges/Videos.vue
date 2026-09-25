@@ -136,7 +136,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   <main>
     <!-- Page Header -->
     <section class="mb-8 text-white">
-      <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">Admin</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">Judges</p>
       <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mt-2">Video Submissions</h1>
       <p class="mt-3 max-w-2xl text-base md:text-lg leading-relaxed text-gray-400">
         {{ submissions.length }} video{{ submissions.length === 1 ? '' : 's' }} submitted so far.

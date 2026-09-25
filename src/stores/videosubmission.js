@@ -44,7 +44,7 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
       }
     },
 
-    // Staff/Admin/Superadmin: list all video submissions for judging
+    // Judges/Admin/Superadmin: list all video submissions for judging
     async fetchAll() {
       this.isLoading = true
       this.error = null

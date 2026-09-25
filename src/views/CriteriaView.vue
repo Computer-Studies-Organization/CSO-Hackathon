@@ -1,22 +1,9 @@
 <script setup>
   import WarmHound from '@/components/uiverse_component/warm-hound.vue'
+  import { CRITERIA, RULES } from '@/config/criteria'
 
-  const criteria = [
-    { title: 'Functional Execution & User Experience', weight: '20%', description: 'Live feature testing and reliability. Does it really work and is it easy to use?' },
-    { title: 'UI, Design & Frontend Presentation', weight: '20%', description: 'Visual quality, modern design, and responsiveness.' },
-    { title: 'Code Quality & Architecture', weight: '20%', description: 'Clean structure, backend logic, scalability, and secure data management.' },
-    { title: 'Documentation & Video Demonstration', weight: '20%', description: 'Documentation clarity, setup guides, and project demo (min 1 minute video required).' },
-    { title: 'GitHub & Version Control', weight: '20%', description: 'Meaningful commits, branches, PRs, hygiene. Primary tie-breaker. Code freeze Sep 23, 12MN.' },
-  ]
-
-  const rules = [
-    'Maximum 5 students per team',
-    'Original work created during the hacking window',
-    'Maintain academic integrity at all times',
-    'Respect participants, organizers, and judges',
-    'NEVER PUSH .env / API keys / passwords / tokens — one leak can disqualify',
-    'Video demonstration required (at least 1 minute)',
-  ]
+  const criteria = CRITERIA
+  const rules = RULES
 </script>
 
 <template>

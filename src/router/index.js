@@ -10,9 +10,17 @@ import AdminDashboard from '../views/Admin/Dashboard.vue'
 import AdminSubmissions from '../views/Admin/Submissions.vue'
 import AdminVideos from '../views/Admin/Videos.vue'
 import AdminAccounts from '../views/Admin/Accounts.vue'
+import JudgesLayout from '../views/Judges/layout.vue'
+import JudgesLogin from '../views/Judges/Login.vue'
+import JudgesDashboard from '../views/Judges/Dashboard.vue'
+import JudgesRepository from '../views/Judges/Repository.vue'
+import JudgesVideos from '../views/Judges/Videos.vue'
+import JudgesCriteria from '../views/Judges/Criteria.vue'
+import JudgesScoring from '../views/Judges/Scoring.vue'
+import AdminScores from '../views/Admin/Scores.vue'
 import { useAuthStore } from '@/stores/auth'
 
-// Private: /admin requires a signed-in staff or admin account.
+// Private: /admin requires a signed-in admin or superadmin account.
 async function requirePanelAccess(to) {
   const authStore = useAuthStore()
 
@@ -22,6 +30,21 @@ async function requirePanelAccess(to) {
 
   if (!authStore.canAccessPanel) {
     return { path: '/admin/login', query: { redirect: to.fullPath } }
+  }
+
+  return true
+}
+
+// Private: /judges requires a signed-in judge account.
+async function requireJudgeAccess(to) {
+  const authStore = useAuthStore()
+
+  if (!authStore.initialized) {
+    await authStore.initializeAuth()
+  }
+
+  if (!authStore.canAccessJudges) {
+    return { path: '/judges/login', query: { redirect: to.fullPath } }
   }
 
   return true
@@ -40,7 +63,8 @@ async function requireAdmin(to) {
   return true
 }
 
-// Already-authorized staff/admins skip the admin login page.
+// Already-authorized admins skip the admin login page. Judges who land
+// here are bounced to their own panel instead.
 async function redirectAuthedAdmin(to) {
   const authStore = useAuthStore()
 
@@ -54,6 +78,34 @@ async function redirectAuthedAdmin(to) {
         ? to.query.redirect
         : '/admin'
     return { path: redirect }
+  }
+
+  if (authStore.canAccessJudges) {
+    return { path: '/judges' }
+  }
+
+  return true
+}
+
+// Already-authorized judges skip the judges login page. Admins who land
+// here are bounced to their own panel instead.
+async function redirectAuthedJudge(to) {
+  const authStore = useAuthStore()
+
+  if (!authStore.initialized) {
+    await authStore.initializeAuth()
+  }
+
+  if (authStore.canAccessJudges) {
+    const redirect =
+      typeof to.query.redirect === 'string' && to.query.redirect.startsWith('/judges')
+        ? to.query.redirect
+        : '/judges'
+    return { path: redirect }
+  }
+
+  if (authStore.canAccessPanel) {
+    return { path: '/admin' }
   }
 
   return true
@@ -99,6 +151,50 @@ const router = createRouter({
       beforeEnter: redirectAuthedAdmin,
     },
     {
+      path: '/judges/login',
+      name: 'JudgesLogin',
+      component: JudgesLogin,
+      beforeEnter: redirectAuthedJudge,
+      meta: { title: 'Judge Sign In' },
+    },
+    {
+      path: '/judges',
+      component: JudgesLayout,
+      beforeEnter: requireJudgeAccess,
+      children: [
+        {
+          path: '',
+          name: 'JudgesDashboard',
+          component: JudgesDashboard,
+          meta: { title: 'Dashboard' },
+        },
+        {
+          path: 'repository',
+          name: 'JudgesRepository',
+          component: JudgesRepository,
+          meta: { title: 'Repository Submissions' },
+        },
+        {
+          path: 'videos',
+          name: 'JudgesVideos',
+          component: JudgesVideos,
+          meta: { title: 'Video Submissions' },
+        },
+        {
+          path: 'criteria',
+          name: 'JudgesCriteria',
+          component: JudgesCriteria,
+          meta: { title: 'Judging Criteria' },
+        },
+        {
+          path: 'scoring',
+          name: 'JudgesScoring',
+          component: JudgesScoring,
+          meta: { title: 'Scoring' },
+        },
+      ],
+    },
+    {
       path: '/admin',
       component: AdminLayout,
       beforeEnter: requirePanelAccess,
@@ -120,6 +216,12 @@ const router = createRouter({
           name: 'AdminVideoSubmissions',
           component: AdminVideos,
           meta: { title: 'Video Submissions' },
+        },
+        {
+          path: 'scores',
+          name: 'AdminScores',
+          component: AdminScores,
+          meta: { title: 'Scores' },
         },
         {
           path: 'accounts',

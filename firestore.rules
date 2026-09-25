@@ -2,24 +2,34 @@ rules_version = '2';
 
 // CSO Repository — Firestore Security Rules.
 //
-// How login works (see src/stores/auth.js): after GitHub sign-in the
-// client queries `staff` by `githubUsername + active`, takes the role,
-// then links a canonical UID doc (`staff/{uid}`). Dashboard and
-// submissions reads resolve via that UID doc (isStaff/isAdmin), so the
-// link step is what makes Fetch submissions work after login.
-// Rules CANNOT know the caller's GitHub username, so the login query
+// How login works (see src/stores/auth.js):
+//   1) Resolve the caller's canonical UID doc (`staff/{uid}`). This is the
+//      only path that works for email/password judges — they have no
+//      GitHub username — and it also serves admins on later sign-ins.
+//   2) Otherwise query `staff` by `githubUsername + active` (first GitHub
+//      sign-in), take the role, then link a canonical UID doc (`staff/{uid}`).
+// Rules CANNOT know the caller's GitHub username, so that first-login query
 // requires blanket signed-in reads on `staff` (any signed-in user,
 // participants included, can list the roster).
 //
-// Invites live in `staff_invites/{usernameLower}` (admin-only writes,
-// staff-only reads so non-staff cannot enumerate them). UID-doc creation
-// is invite-gated: allowed ONLY if a matching active invite exists (role
-// pinned to the invite — no self-promotion, no open registration).
-// Hijack requires guessing an invited username AND racing the owner.
+// Roles: `superadmin`, `admin`, `judge`. The old `staff` role was renamed
+// to `judge` — a one-time client migration (migrateStaffToJudges) converts
+// any leftover docs; until it runs, role:'staff' resolves to no access.
 //
-// Admin account management (see src/stores/staff.js) uses both `staff`
-// and the invite allowlist. Submissions use one-doc-per-user
-// (`submissions/{uid}`, `video_submissions/{uid}`).
+// Invites live in `staff_invites/{usernameLower}` (admin-only writes,
+// admin-only reads so judges/participants cannot enumerate them). UID-doc
+// creation is invite-gated: allowed ONLY if a matching active invite exists
+// (role pinned to the invite — no self-promotion, no open registration).
+// Only `admin` invites are claimable: judges authenticate by email, so
+// they never take this path. The claim is bound to the caller's GitHub
+// identity — the invite stores the invitee's numeric `githubId`, matched
+// against the ID token's firebase.identities claim — so guessing an
+// invited username (the roster read leaks them) is not enough.
+//
+// Account management (see src/stores/staff.js) uses both `staff` and the
+// invite allowlist. Submissions use one-doc-per-user
+// (`submissions/{uid}`, `video_submissions/{uid}`). Scores use
+// `scores/{judgeUid}/entries/{submissionId}`.
 //
 // Video playback: Cloudflare Worker `cso-videos.*.workers.dev` serves
 // R2 objects at /videos/{uid}/… (public GET + Range). Uploads are
@@ -32,7 +42,9 @@ service cloud.firestore {
     // ROLE CHECKS
     // =========================
 
-    function isStaff() {
+    // Judges, admins and superadmin — everyone who may read the full
+    // submission/video corpora for review. Replaces the old isStaff().
+    function isReviewer() {
       return request.auth != null
         && exists(
           /databases/$(database)/documents/staff/$(request.auth.uid)
@@ -42,7 +54,7 @@ service cloud.firestore {
         ).data.active != false
         && get(
           /databases/$(database)/documents/staff/$(request.auth.uid)
-        ).data.role in ['staff', 'admin', 'superadmin'];
+        ).data.role in ['judge', 'admin', 'superadmin'];
     }
 
     function isAdmin() {
@@ -85,15 +97,24 @@ service cloud.firestore {
 
     // Invite must exist, match the requested role, and be active.
     // Role is pinned to the invite so callers cannot self-promote.
+    // githubId binds the claim to the caller's GitHub identity: the
+    // roster read leaks usernames/roles, but the attacker's ID token
+    // always carries THEIR OWN numeric GitHub id (firebase.identities),
+    // so knowing alice's invite no longer lets anyone claim it.
+    // Fail-closed: invite without githubId (not yet backfilled) or a
+    // password-provider token (no github.com identity) -> deny.
     // get()/exists() run server-side inside rules — the caller needs
     // no read access to staff_invites, so invites stay unlistable by
-    // non-staff while still gateable here.
+    // judges/participants while still gateable here.
     function hasValidInvite(username, role) {
       return hasInvite(username)
         && inviteData(username).githubUsername == username
         && inviteData(username).role == role
-        && inviteData(username).role in ['staff', 'admin']
-        && inviteData(username).active != false;
+        && inviteData(username).role in ['admin']
+        && inviteData(username).active != false
+        && ('githubId' in inviteData(username))
+        && inviteData(username).githubId
+             == request.auth.token.firebase.identities['github.com'][0];
     }
 
     // Invite-gated self-claim for the login link step: only a username
@@ -104,7 +125,7 @@ service cloud.firestore {
         && docId == request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.githubUsername is string
-        && request.resource.data.role in ['staff', 'admin']
+        && request.resource.data.role in ['admin']
         && request.resource.data.active == true
         && hasValidInvite(
           request.resource.data.githubUsername,
@@ -125,22 +146,40 @@ service cloud.firestore {
       // any signed-in user can list the staff roster.
       allow read: if request.auth != null;
 
-      // Admin can create staff. Invited users create their own UID doc
-      // once via invite-gated self-claim (the login link step — without
-      // it, isStaff() stays false and Fetch submissions is denied).
-      allow create: if isAdmin() || isSelfUidCreate(staffId);
+      // Nobody picks a role: superadmin provisions admins, an admin
+      // provisions judges (mirrors the Accounts UI, which has no role
+      // selector). Invited admins create their own UID doc once via
+      // invite-gated self-claim (the login link step — without it
+      // isReviewer()/isAdmin() stay false and panel reads are denied).
+      allow create: if isSelfUidCreate(staffId)
+        || (isSuperadmin() && request.resource.data.role == 'admin')
+        || (isAdmin() && !isSuperadmin()
+            && request.resource.data.role == 'judge'
+            && request.resource.data.active == true);
 
-      // Admin can update staff (except superadmin docs, which are
-      // untouchable even by admins). Any signed-in user may touch ONLY
-      // lastLoginAt on any staff doc — the login presence update.
-      allow update: if (isAdmin() && resource.data.role != 'superadmin')
+      // Same separation as create: superadmin manages admins, an admin
+      // manages judges — so an admin cannot promote, disable or delete
+      // another admin. Superadmin docs stay untouchable by everyone
+      // (that includes superadmin itself). Any signed-in user may touch
+      // ONLY lastLoginAt on any staff doc — the login presence update.
+      // Superadmin keeps write access to judge docs as break-glass and
+      // so the one-time staff->judge migration can run.
+      //
+      // `role` is immutable on the admin branch: without the pin an
+      // admin could flip a judge doc (incl. one they provisioned via
+      // addJudge and know the password for) to superadmin — the client
+      // has no promote UI, so nothing legitimate is lost. The superadmin
+      // branch stays unpinned: migrateStaffToJudges rewrites role
+      // client-side, and superadmin is already the top role.
+      allow update: if (isSuperadmin() && resource.data.role != 'superadmin')
+        || (isAdmin() && !isSuperadmin()
+            && resource.data.role == 'judge'
+            && request.resource.data.role == resource.data.role)
         || (request.auth != null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLoginAt']));
 
-      // Admin can remove staff (except superadmin — the Accounts UI
-      // Remove button runs as admin, so superadmin-only delete would
-      // break it with permission-denied).
-      allow delete: if isAdmin() && resource.data.role != 'superadmin';
+      allow delete: if (isSuperadmin() && resource.data.role != 'superadmin')
+        || (isAdmin() && !isSuperadmin() && resource.data.role == 'judge');
     }
 
 
@@ -148,13 +187,30 @@ service cloud.firestore {
     // STAFF INVITES
     // =========================
 
-    // Invite allowlist used by the Accounts admin UI.
-    // Doc ID = lowercase GitHub username. Staff-only reads so
-    // participants cannot enumerate invites (the link-step gate checks
-    // existence server-side, no client read needed).
+    // Invite allowlist used by the Accounts UI — the GitHub-side twin of
+    // `staff`. Doc ID = lowercase GitHub username. Admin-only reads so
+    // judges and participants cannot enumerate invites (the link-step gate
+    // checks existence server-side, no client read needed).
+    //
+    // Create/update mirror the `staff` split, and this is load-bearing:
+    // an invite is NOT inert for admins — isSelfUidCreate grants whatever
+    // role the invite carries — so letting an admin mint or flip an invite
+    // to role:'admin' would be a privilege escalation past the
+    // superadmin/admin boundary. (`judge` invites are inert: only 'admin'
+    // invites are claimable, since judges authenticate by email.)
+    // Superadmin is unconstrained — it is already the top role.
     match /staff_invites/{username} {
-      allow read: if isStaff();
-      allow create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+
+      allow create, update: if isSuperadmin()
+        || (isAdmin() && !isSuperadmin()
+            && request.resource.data.role == 'judge');
+
+      // Same boundary as update. Deletion follows resource.data (the
+      // row's current role), so an admin may only remove judge invites.
+      allow delete: if isSuperadmin()
+        || (isAdmin() && !isSuperadmin()
+            && resource.data.role == 'judge');
     }
 
 
@@ -164,7 +220,7 @@ service cloud.firestore {
 
     match /submissions/{submissionId} {
 
-      // Staff, Admin and Superadmin can view submissions.
+      // Judges, Admin and Superadmin can view submissions.
       // Owners can read their own UID doc — `submissionId == auth.uid`
       // first so owners can also read a not-yet-existing doc
       // (`resource.data` errors on missing docs, which broke
@@ -172,7 +228,7 @@ service cloud.firestore {
       // to the userId check.
       allow read: if request.auth != null
         && (
-          isStaff()
+          isReviewer()
           || submissionId == request.auth.uid
           || (resource != null && resource.data.userId == request.auth.uid)
         );
@@ -201,13 +257,13 @@ service cloud.firestore {
 
     match /video_submissions/{submissionId} {
 
-      // Staff/Admin/Superadmin can view all (judging).
+      // Judges/Admin/Superadmin can view all (judging).
       // Owners read their own UID doc — `submissionId == auth.uid`
       // first so first-time check works on a not-yet-existing doc
       // (same pattern as `submissions`).
       allow read: if request.auth != null
         && (
-          isStaff()
+          isReviewer()
           || submissionId == request.auth.uid
           || (resource != null && resource.data.userId == request.auth.uid)
         );
@@ -243,6 +299,76 @@ service cloud.firestore {
 
       // Only Superadmin can delete video submissions.
       allow delete: if isSuperadmin();
+    }
+
+
+    // =========================
+    // SCORES
+    // =========================
+
+    // One score sheet per judge per participant:
+    //   scores/{judgeUid}/entries/{participantUid}
+    //
+    // The entry doc id is the participant's uid because submissions/{uid}
+    // and video_submissions/{uid} share it — so a judge's sheet for a team
+    // is addressable without a join.
+    //
+    // Visibility:
+    //   judge        -> own subcollection only (read + write)
+    //   admin        -> every judge's subcollection (read only)
+    //   participant  -> nothing; scores are never listable by them
+    //
+    // The Scores view reads each judge's subcollection directly (judge
+    // uids come from `staff`) instead of using a collection-group query,
+    // because concrete-path rules do NOT apply to collection-group
+    // queries — adding a `/{path=**}/entries` wildcard would be needed
+    // and would widen access beyond this collection.
+    function validScoreSheet(data, judgeUid, participantUid) {
+      let s = data.scores;
+      return data is map
+        && data.uid == participantUid
+        && data.judgeUid == judgeUid
+        && data.comments is string
+        && data.comments.size() <= 2000
+        && data.total is int
+        && data.total >= 0
+        && data.total <= 50
+        && data.percent is number
+        && data.percent >= 0
+        && data.percent <= 100
+        && s is map
+        && s.keys().hasOnly(['functional', 'design', 'code', 'docs', 'github'])
+        && s.functional is int && s.functional >= 0 && s.functional <= 10
+        && s.design is int && s.design >= 0 && s.design <= 10
+        && s.code is int && s.code >= 0 && s.code <= 10
+        && s.docs is int && s.docs >= 0 && s.docs <= 10
+        && s.github is int && s.github >= 0 && s.github <= 10;
+    }
+
+    match /scores/{judgeUid} {
+
+      allow get, list: if request.auth != null
+        && (request.auth.uid == judgeUid || isAdmin());
+
+      match /entries/{participantUid} {
+
+        // Judge reads their own sheet; admin/superadmin read all.
+        allow get, list: if request.auth != null
+          && (request.auth.uid == judgeUid || isAdmin());
+
+        // Only the owning judge may score, and only while active and
+        // holding a reviewer role. `isReviewer()` is what stops a
+        // participant from squatting scores/{theirOwnUid}/entries.
+        allow create, update: if request.auth != null
+          && request.auth.uid == judgeUid
+          && isReviewer()
+          && validScoreSheet(request.resource.data, judgeUid, participantUid);
+
+        // A judge may retract their own sheet. Admins cannot rewrite
+        // someone else's scoring — results are judge-owned records.
+        allow delete: if request.auth != null
+          && request.auth.uid == judgeUid;
+      }
     }
 
 

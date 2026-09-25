@@ -77,7 +77,7 @@
     {
       id: 2,
       time: 'September 24 | 9:00 AM - Auditorium',
-      status: 'Next',
+      status: 'Done',
       morning: ['Documentation', 'Learn required documentation format', 'Organize project documentation', 'Prepare project documentation'],
       afternoon: ['Present project idea (PPT required before)', 'Explain problem and solution', "Highlight key features", 'Explain technology/approach'],
       afternoonTitle: 'Pitching Day',
@@ -339,11 +339,11 @@
 
     <div class="mb-10 text-white">
       <h3 class="text-3xl font-bold underline">
-        ACLC CODE FEST PRE-HACKATHON 2026
+        ACLC CODE FEST 2026
       </h3>
       <h1 class="text-4xl font-extrabold mt-2">WHAT IS THE HACKATHON?</h1>
       <p class="mt-3 text-lg">
-        The <strong>CODEFEST 2026: The ACLC Mandaue Hackathon — Pre-Hacktoberfest Edition</strong>
+        The <strong>CODEFEST 2026: The ACLC Mandaue Hackathon </strong>
         is an ACLC College of Mandaue CSO hackathon. From learning to building:
         tools are learned in the morning (Git & GitHub Workshop), then immediately used in the afternoon
         to build a real solution — not a toy or demo only.

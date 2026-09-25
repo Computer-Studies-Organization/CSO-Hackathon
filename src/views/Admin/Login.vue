@@ -66,10 +66,10 @@ const loginAsAdmin = async () => {
         >
           <div class="text-center mb-7">
             <h2 class="text-2xl font-bold">
-              Staff & admin access
+              Admin access
             </h2>
             <p class="text-sm text-gray-400 mt-2">
-              Sign in with an authorized GitHub staff or admin account
+              Sign in with an authorized GitHub admin account
               to manage submissions.
             </p>
           </div>

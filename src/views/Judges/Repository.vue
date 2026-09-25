@@ -21,7 +21,7 @@ const filtered = computed(() => {
   return submissions.value.filter((s) =>
     [s.groupName, s.projectName, displayMembers(s), s.githubUsername, s.techStack, s.repositoryUrl]
       .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(q))
+      .some((v) => String(v).toLowerCase().includes(q)),
   )
 })
 
@@ -53,7 +53,10 @@ const memberList = (s) =>
   Array.isArray(s.members) && s.members.length
     ? s.members
     : s.membersName
-      ? String(s.membersName).split(',').map((m) => m.trim()).filter(Boolean)
+      ? String(s.membersName)
+          .split(',')
+          .map((m) => m.trim())
+          .filter(Boolean)
       : []
 </script>
 
@@ -61,9 +64,7 @@ const memberList = (s) =>
   <main>
     <!-- Page Header -->
     <section class="mb-8 text-white">
-      <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">
-        Admin
-      </p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-yellow-400">Judges</p>
       <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mt-2">
         Repository Submissions
       </h1>
@@ -78,30 +79,22 @@ const memberList = (s) =>
         v-model="search"
         type="text"
         placeholder="Search by project, username, tech stack…"
-        class="w-full px-4 py-3 rounded-xl bg-black/30 border border-white/10
-               text-white placeholder-gray-500 outline-none
-               focus:border-purple-400 transition text-sm"
+        class="w-full px-4 py-3 rounded-xl bg-black/30 border border-white/10 text-white placeholder-gray-500 outline-none focus:border-purple-400 transition text-sm"
       />
     </div>
 
     <!-- Error -->
-    <div
-      v-if="error"
-      class="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20"
-    >
+    <div v-if="error" class="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
       <p class="text-xs text-red-200 leading-relaxed">{{ error }}</p>
     </div>
 
     <!-- Table Card -->
     <section
-      class="rounded-3xl bg-gray-900/80 backdrop-blur-xl border border-white/10
-             shadow-2xl shadow-black/20 p-6 md:p-8 text-white overflow-hidden"
+      class="rounded-3xl bg-gray-900/80 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/20 p-6 md:p-8 text-white overflow-hidden"
     >
       <p v-if="isLoading" class="text-sm text-gray-400">Loading submissions…</p>
 
-      <p v-else-if="!filtered.length" class="text-sm text-gray-400">
-        No submissions found.
-      </p>
+      <p v-else-if="!filtered.length" class="text-sm text-gray-400">No submissions found.</p>
 
       <div v-else class="overflow-x-auto -mx-6 md:-mx-8 px-6 md:px-8">
         <table class="w-full text-sm min-w-[860px]">
@@ -116,17 +109,17 @@ const memberList = (s) =>
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="s in pageItems"
-              :key="s.id"
-              class="border-t border-white/5 align-top"
-            >
+            <tr v-for="s in pageItems" :key="s.id" class="border-t border-white/5 align-top">
               <td class="py-4 pr-4">
                 <p class="text-[11px] font-bold uppercase tracking-wider text-gray-500">Group</p>
                 <p class="font-semibold">{{ s.groupName || '—' }}</p>
-                <p class="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-2">Project</p>
+                <p class="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-2">
+                  Project
+                </p>
                 <p class="text-sm text-gray-100">{{ s.projectName || '—' }}</p>
-                <p class="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-2">Description</p>
+                <p class="text-[11px] font-bold uppercase tracking-wider text-gray-500 mt-2">
+                  Description
+                </p>
                 <p class="text-xs text-gray-400 mt-0.5 max-w-xs line-clamp-3">
                   {{ s.description || '—' }}
                 </p>

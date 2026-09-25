@@ -8,6 +8,7 @@ const authStore = useAuthStore()
 const route = useRoute()
 
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+const isJudgeRoute = computed(() => route.path.startsWith('/judge'))
 const mobileOpen = ref(false)
 
 watch(() => route.path, () => {
@@ -22,11 +23,11 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen flex flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 overflow-x-clip">
-      <header v-if="!isAdminRoute" class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/10 text-white">
+      <header v-if="!isAdminRoute && !isJudgeRoute" class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/10 text-white">
       <div class="container mx-auto py-4 px-6 flex justify-between items-center gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <img src="/assets/CSOLOGO-removebg-preview.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
-          <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST 2026 Pre-Hacktoberfest Edition</h1>
+          <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST 2026</h1>
       </div>
         <!-- Desktop nav -->
         <nav class="hidden md:flex items-center space-x-6 justify-center">
@@ -150,7 +151,7 @@ onMounted(() => {
     </main>
 
      <footer
-    v-if="!isAdminRoute"
+    v-if="!isAdminRoute && !isJudgeRoute"
     class="mt-16 border-t border-white/10
            bg-gray-950/70 backdrop-blur-xl
            text-white"

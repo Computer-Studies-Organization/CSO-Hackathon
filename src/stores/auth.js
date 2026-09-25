@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import {
   signInWithPopup,
+  signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   getAdditionalUserInfo
@@ -12,6 +13,7 @@ import {
   query,
   setDoc,
   where,
+  getDoc,
   getDocs,
   updateDoc,
   serverTimestamp
@@ -19,7 +21,7 @@ import {
 
 import { auth, githubProvider, db } from '@/firebase/config'
 
-const VALID_ROLES = ['superadmin', 'admin', 'staff']
+const VALID_ROLES = ['superadmin', 'admin', 'judge']
 
 function extractGithubUsername(user, override) {
   if (override) {
@@ -64,12 +66,19 @@ export const useAuthStore = defineStore('auth', {
       state.user != null &&
       ['superadmin', 'admin'].includes(state.role),
 
-    isStaff: (state) =>
+    isJudge: (state) =>
       state.user != null &&
-      ['superadmin', 'admin', 'staff'].includes(state.role),
+      state.role === 'judge',
 
+    // /admin is superadmin + admin only. The old `staff` role no longer
+    // exists — judges get their own panel at /judges.
     canAccessPanel() {
-      return this.isAuthenticated && this.isStaff
+      return this.isAuthenticated && this.isAdmin
+    },
+
+    // /judges is judges only.
+    canAccessJudges() {
+      return this.isAuthenticated && this.isJudge
     },
 
     githubUsername: (state) =>
@@ -124,6 +133,39 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    // Email + password sign-in for judges. No GitHub fallback — judges are
+    // provisioned by an admin (Phase 3) and have no GitHub linkage.
+    async loginJudge(email, password) {
+      this.isLoading = true
+      this.error = null
+
+      try {
+        const result = await signInWithEmailAndPassword(
+          auth,
+          String(email || '').trim(),
+          password
+        )
+
+        this.user = result.user
+        this.githubUsernameValue = null
+
+        await this.fetchRole()
+
+        return result.user
+
+      } catch (error) {
+        console.error('Judge login failed:', error)
+
+        this.error =
+          this.getFirebaseErrorMessage(error)
+
+        throw error
+
+      } finally {
+        this.isLoading = false
+      }
+    },
+
     async logout() {
       try {
         await signOut(auth)
@@ -141,29 +183,60 @@ export const useAuthStore = defineStore('auth', {
     },
 
     initializeAuth() {
-      return new Promise((resolve) => {
+      if (this._initPromise) {
+        return this._initPromise
+      }
+
+      this._initPromise = new Promise((resolve) => {
+        let settled = false
+
+        const finish = (value) => {
+          if (settled) return
+          settled = true
+          this.initialized = true
+          resolve(value)
+        }
+
+        const timer = setTimeout(() => finish(null), 8000)
+
         onAuthStateChanged(auth, async (user) => {
           this.user = user
 
           if (!user) {
             this.role = null
             this.githubUsernameValue = null
-            this.initialized = true
-
-            resolve(null)
+            clearTimeout(timer)
+            finish(null)
             return
           }
 
-          await this.fetchRole()
-
-          this.initialized = true
-
-          resolve(user)
+          try {
+            await this.fetchRole()
+          } catch {
+            // fetchRole already set this.error + role = null
+          } finally {
+            clearTimeout(timer)
+            finish(user)
+          }
         })
       })
+
+      return this._initPromise
     },
 
-    async fetchRole(usernameOverride) {
+    fetchRole(usernameOverride) {
+      if (this._roleInflight) {
+        return this._roleInflight
+      }
+
+      const run = this._fetchRole(usernameOverride)
+      this._roleInflight = run.finally(() => {
+        this._roleInflight = null
+      })
+      return this._roleInflight
+    },
+
+    async _fetchRole(usernameOverride) {
       this.role = null
 
       if (!this.user) {
@@ -178,15 +251,38 @@ export const useAuthStore = defineStore('auth', {
 
       this.githubUsernameValue = githubUsername
 
-      if (!githubUsername) {
-        console.warn(
-          'GitHub username unavailable.'
-        )
-
-        return null
-      }
-
       try {
+        // 1) Canonical UID doc (staff/{uid}). This is the only lookup that
+        //    resolves for email/password judges — they have no GitHub
+        //    username — and it short-circuits admins who already linked.
+        const uidRef = doc(
+          db,
+          'staff',
+          this.user.uid
+        )
+        const uidDoc = await getDoc(uidRef)
+
+        if (uidDoc.exists()) {
+          const uidData = uidDoc.data()
+
+          if (
+            VALID_ROLES.includes(uidData.role) &&
+            uidData.active !== false
+          ) {
+            this.role = uidData.role
+
+            await this.touchLastLogin(uidRef)
+
+            return this.role
+          }
+        }
+
+        // 2) GitHub invite/mirror lookup — first sign-in only. The link
+        //    step below creates staff/{uid}, so step 1 takes over after.
+        if (!githubUsername) {
+          return null
+        }
+
         const staffQuery = query(
           collection(db, 'staff'),
           where(
@@ -204,12 +300,7 @@ export const useAuthStore = defineStore('auth', {
         const snapshot =
           await getDocs(staffQuery)
 
-          
         if (snapshot.empty) {
-          // console.warn(
-          //   `No active staff account found for @${githubUsername}`
-          // )
-
           return null
         }
 
@@ -232,23 +323,12 @@ export const useAuthStore = defineStore('auth', {
 
         this.role = data.role
 
-        try {
-          await updateDoc(
-            staffDoc.ref,
-            {
-              lastLoginAt:
-                serverTimestamp()
-            }
-          )
-        } catch (error) {
-          console.warn(
-            'Unable to update lastLoginAt:',
-            error
-          )
-        }
+        await this.touchLastLogin(
+          staffDoc.ref
+        )
 
         // Link a canonical UID doc (staff/{uid}) so firestore.rules
-        // isStaff()/isAdmin() — which resolve via UID doc — recognize
+        // isReviewer()/isAdmin() — which resolve via UID doc — recognize
         // this user (dashboard/submissions reads need it). Allowed only
         // when a matching active invite exists (role pinned to invite).
         // Best-effort: role is already resolved above.
@@ -279,10 +359,25 @@ export const useAuthStore = defineStore('auth', {
       } catch (error) {
         console.error('Fetch role error:', error)
 
-  this.role = null
-  this.error = error.message
+        this.role = null
+        this.error = error.message
 
-  throw error
+        throw error
+      }
+    },
+
+    // Presence touch on the caller's own staff doc. Rules allow this
+    // for any signed-in user when it only affects `lastLoginAt`.
+    async touchLastLogin(ref) {
+      try {
+        await updateDoc(ref, {
+          lastLoginAt: serverTimestamp()
+        })
+      } catch (error) {
+        console.warn(
+          'Unable to update lastLoginAt:',
+          error
+        )
       }
     },
 
@@ -303,8 +398,28 @@ export const useAuthStore = defineStore('auth', {
         case 'auth/unauthorized-domain':
           return 'This domain is not authorized for Firebase Authentication.'
 
+        case 'auth/invalid-email':
+          return 'Please enter a valid email address.'
+
+        case 'auth/missing-password':
+          return 'Please enter your password.'
+
+        case 'auth/invalid-credential':
+        case 'auth/wrong-password':
+        case 'auth/user-not-found':
+          return 'Incorrect email or password.'
+
+        case 'auth/user-disabled':
+          return 'This account has been disabled. Contact the administrator.'
+
+        case 'auth/too-many-requests':
+          return 'Too many attempts. Please wait a moment and try again.'
+
+        case 'auth/network-request-failed':
+          return 'Network error. Check your connection and try again.'
+
         default:
-          return 'Unable to sign in with GitHub. Please try again.'
+          return 'Unable to sign in. Please try again.'
       }
     }
   }

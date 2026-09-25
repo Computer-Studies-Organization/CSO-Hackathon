@@ -16,6 +16,107 @@ import {
 import { db } from '@/firebase/config'
 
 const GITHUB_USERNAME_PATTERN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+// Identity Toolkit REST base. Used directly instead of the Firebase JS SDK
+// so creating a judge never replaces the signed-in admin's own auth session
+// (SDK signUp would sign the admin out).
+const IDENTITY_TOOLKIT =
+  'https://identitytoolkit.googleapis.com/v1/accounts'
+
+const FIREBASE_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY
+
+// Temp password generator: 14 chars, crypto-grade randomness, alphabet
+// strips look-alikes (l / o / O / I / 0 / 1) so it is unambiguous when an
+// admin reads it aloud or types it into a chat. Shown once, never stored.
+function generateTempPassword(length = 14) {
+  const alphabet =
+    'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const buf = new Uint32Array(length)
+  crypto.getRandomValues(buf)
+
+  let out = ''
+  for (let i = 0; i < length; i++) {
+    out += alphabet[buf[i] % alphabet.length]
+  }
+  return out
+}
+
+async function identityToolkit(endpoint, body) {
+  const res = await fetch(
+    `${IDENTITY_TOOLKIT}:${endpoint}?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }
+  )
+
+  const payload = await res.json().catch(() => ({}))
+
+  return { ok: res.ok, payload, code: payload?.error?.message || '' }
+}
+
+// Maps Identity Toolkit error strings to copy an admin can act on.
+function identityToolkitMessage(code) {
+  if (code.includes('EMAIL_EXISTS')) {
+    return 'That email already has a Firebase account. Send a password reset instead.'
+  }
+  if (code.includes('INVALID_EMAIL')) {
+    return 'Firebase rejected that email address.'
+  }
+  if (code.includes('MISSING_PASSWORD') || code.includes('WEAK_PASSWORD')) {
+    return 'That password is too weak. Use at least 6 characters.'
+  }
+  if (code.includes('TOO_MANY_ATTEMPTS')) {
+    return 'Too many attempts. Wait a moment and try again.'
+  }
+  if (code.includes('USER_NOT_FOUND')) {
+    return 'No Firebase account exists for that email yet.'
+  }
+  if (code.includes('NETWORK_REQUEST_FAILED')) {
+    return 'Network error. Check your connection and try again.'
+  }
+  return code || 'Unable to reach Firebase Authentication.'
+}
+
+// Numeric GitHub account id for an invitee — the identity firestore.rules
+// binds invite claims to (request.auth.token.firebase.identities).
+// Mirrors verifyRepositoryExists in submission.js: fail-closed, 10s cap.
+async function lookupGithubId(username) {
+  let response
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+    response = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+  } catch {
+    throw new Error('Could not verify the GitHub account. Check your connection and try again.')
+  }
+
+  if (response.status === 404) {
+    throw new Error(`GitHub account @${username} does not exist.`)
+  }
+  if (response.status === 403) {
+    throw new Error(
+      'GitHub verification is rate-limited right now. Please wait a minute and try again.',
+    )
+  }
+  if (!response.ok) {
+    throw new Error('Could not verify the GitHub account. Please try again.')
+  }
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!data.id) {
+    throw new Error('Could not verify the GitHub account. Please try again.')
+  }
+
+  return String(data.id)
+}
 
 // Invites live in `staff_invites/{usernameLower}` (admin-only writes).
 // Canonical role docs live in `staff/{uid}`.
@@ -119,9 +220,9 @@ export const useStaffStore = defineStore('staff', {
         if (!GITHUB_USERNAME_PATTERN.test(username)) {
           throw new Error('Please provide a valid GitHub username.')
         }
-        // Only admin/staff can be created via UI.
+        // Only admin/judge can be created via UI.
         // Superadmin is assigned manually (console/allowlist).
-        if (!['admin', 'staff'].includes(role)) {
+        if (!['admin', 'judge'].includes(role)) {
           throw new Error('Invalid role selected.')
         }
 
@@ -136,16 +237,21 @@ export const useStaffStore = defineStore('staff', {
           ).catch(() => ({ empty: true }))
         ])
         if ((inviteExisting && inviteExisting.exists?.()) || !staffExisting.empty) {
-          throw new Error(`@${username} is already in the staff list.`)
+          throw new Error(`@${username} is already in the account list.`)
         }
+
+        // Fail-closed identity binding: firestore.rules requires this id on
+        // the invite before anyone may claim it, so no lookup -> no write.
+        const githubId = await lookupGithubId(username)
 
         await setDoc(doc(db, 'staff_invites', key), {
           githubUsername: key,
           displayName: username,
           role,
           active: true,
+          githubId,
           createdBy: adminUser?.uid || null,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
         })
 
         // Mirror into `staff`: the login flow (auth.js) resolves roles by
@@ -157,10 +263,11 @@ export const useStaffStore = defineStore('staff', {
           displayName: username,
           role,
           active: true,
+          githubId,
           uid: null,
           createdBy: adminUser?.uid || null,
           createdAt: serverTimestamp(),
-          mirrorOf: `staff_invites/${key}`
+          mirrorOf: `staff_invites/${key}`,
         })
 
         await this.fetchStaff()
@@ -174,31 +281,191 @@ export const useStaffStore = defineStore('staff', {
       }
     },
 
+    // Judge provisioning (email + password). Two-step:
+    //   1) Identity Toolkit REST signUp — creates the Firebase Auth user and
+    //      returns the uid. Raw fetch, so the admin's session is untouched.
+    //   2) setDoc(staff/{uid}, { role: 'judge', ... }) — the canonical role
+    //      doc that firestore.rules' isReviewer()/isAdmin() resolve against.
+    // The temp password is returned once and never persisted anywhere.
+    async addJudge(adminUser, { email, displayName }) {
+      this.isSaving = true
+      this.error = null
+
+      try {
+        if (!FIREBASE_API_KEY) {
+          throw new Error(
+            'VITE_FIREBASE_API_KEY is missing. Add it to .env to provision judges.'
+          )
+        }
+
+        const normalizedEmail = String(email || '')
+          .trim()
+          .toLowerCase()
+
+        if (!EMAIL_PATTERN.test(normalizedEmail)) {
+          throw new Error('Please provide a valid email address.')
+        }
+
+        const name =
+          String(displayName || '').trim() ||
+          normalizedEmail.split('@')[0]
+
+        // Duplicate check in Firestore first — clearer than a raw 400 and
+        // catches a doc left behind by a previously failed provisioning.
+        const existing = await getDocs(
+          query(
+            collection(db, 'staff'),
+            where('email', '==', normalizedEmail)
+          )
+        ).catch(() => ({ empty: true }))
+
+        if (!existing.empty) {
+          throw new Error(
+            `${normalizedEmail} is already in the account list.`
+          )
+        }
+
+        const tempPassword = generateTempPassword()
+
+        const { ok, code, payload } = await identityToolkit('signUp', {
+          email: normalizedEmail,
+          password: tempPassword,
+          returnSecureToken: true
+        })
+
+        if (!ok) {
+          throw new Error(identityToolkitMessage(code))
+        }
+
+        const uid = payload.localId
+
+        if (!uid) {
+          throw new Error(
+            'Account was created but Firebase returned no user id.'
+          )
+        }
+
+        // Rules pin role:'judge' + active:true for admin-created staff docs.
+        await setDoc(doc(db, 'staff', uid), {
+          email: normalizedEmail,
+          displayName: name,
+          role: 'judge',
+          active: true,
+          uid,
+          createdBy: adminUser?.uid || null,
+          createdAt: serverTimestamp(),
+          createdVia: 'email-password'
+        })
+
+        await this.fetchStaff()
+
+        return {
+          uid,
+          email: normalizedEmail,
+          displayName: name,
+          tempPassword
+        }
+      } catch (error) {
+        console.error('Add judge error:', error)
+        this.error = friendlyError(
+          error,
+          'Unable to create the judge account.'
+        )
+        throw error
+      } finally {
+        this.isSaving = false
+      }
+    },
+
+    // Password reset for an existing judge. UI-visible to superadmin only
+    // (decision), but the endpoint itself is public — it only mails the
+    // owner of that address and is rate-limited by Firebase.
+    async sendJudgeReset(member) {
+      this.isSaving = true
+      this.error = null
+
+      try {
+        if (!FIREBASE_API_KEY) {
+          throw new Error(
+            'VITE_FIREBASE_API_KEY is missing. Add it to .env to send resets.'
+          )
+        }
+
+        const email = String(member?.email || '')
+          .trim()
+          .toLowerCase()
+
+        if (!EMAIL_PATTERN.test(email)) {
+          throw new Error('This account has no email on file.')
+        }
+
+        const { ok, code } = await identityToolkit('sendOobCode', {
+          requestType: 'PASSWORD_RESET',
+          email
+        })
+
+        if (!ok) {
+          throw new Error(identityToolkitMessage(code))
+        }
+
+        return email
+      } catch (error) {
+        console.error('Send judge reset error:', error)
+        this.error = friendlyError(
+          error,
+          'Unable to send the password reset email.'
+        )
+        throw error
+      } finally {
+        this.isSaving = false
+      }
+    },
+
     // One-time migration (both directions, run as admin):
     // 1) legacy random-ID invites in `staff` (uid: null) -> staff_invites.
     // 2) staff_invites without a `staff` mirror -> create the mirror so
     //    the login username-query can find them.
+    // Also backfills `githubId` on claimable (role:'admin') invites — the
+    // field firestore.rules requires before anyone may claim them. Judge
+    // invites are inert (never claimable), so no API quota is spent there.
+    // Returns { migrated, backfilled, failed } so the admin can verify
+    // coverage before the rules deploy that consumes githubId.
     async migrateLegacyInvites() {
       const snap = await getDocs(collection(db, 'staff'))
       let migrated = 0
+      let backfilled = 0
+      const failed = new Set()
+
+      const idFor = async (username) => {
+        try {
+          return await lookupGithubId(username)
+        } catch (error) {
+          console.warn(`githubId lookup failed for @${username}:`, error.message)
+          failed.add(username)
+          return null
+        }
+      }
+
       for (const d of snap.docs) {
         const data = d.data()
         const username = (data.githubUsername || '').toLowerCase()
         if (!username || data.uid != null) continue
         if (d.id === data.uid) continue
-        if (!['admin', 'staff'].includes(data.role)) continue
+        if (!['admin', 'judge'].includes(data.role)) continue
         const inviteRef = doc(db, 'staff_invites', username)
         const existing = await getDoc(inviteRef).catch(() => null)
         if (existing && existing.exists?.()) continue
+        const githubId = data.role === 'admin' ? await idFor(username) : null
         await setDoc(inviteRef, {
           githubUsername: username,
           displayName: data.displayName || username,
           role: data.role,
           active: data.active !== false,
+          ...(githubId ? { githubId } : {}),
           createdBy: data.createdBy || null,
           createdAt: data.createdAt || serverTimestamp(),
           migratedFrom: d.id,
-          migratedAt: serverTimestamp()
+          migratedAt: serverTimestamp(),
         })
         migrated += 1
       }
@@ -208,7 +475,19 @@ export const useStaffStore = defineStore('staff', {
       for (const d of inviteSnap.docs || []) {
         const data = d.data()
         const username = (data.githubUsername || d.id || '').toLowerCase()
-        if (!username || !['admin', 'staff'].includes(data.role)) continue
+        if (!username || !['admin', 'judge'].includes(data.role)) continue
+
+        // Backfill before the mirror check: coverage matters even when the
+        // mirror already exists.
+        let githubId = data.githubId || null
+        if (data.role === 'admin' && !githubId) {
+          githubId = await idFor(username)
+          if (githubId) {
+            await updateDoc(doc(db, 'staff_invites', d.id), { githubId })
+            backfilled += 1
+          }
+        }
+
         const existing = await getDocs(
           query(collection(db, 'staff'), where('githubUsername', '==', username))
         ).catch(() => ({ empty: true }))
@@ -218,15 +497,77 @@ export const useStaffStore = defineStore('staff', {
           displayName: data.displayName || username,
           role: data.role,
           active: data.active !== false,
+          ...(githubId ? { githubId } : {}),
           uid: null,
           createdBy: data.createdBy || null,
           createdAt: data.createdAt || serverTimestamp(),
-          mirrorOf: `staff_invites/${username}`
+          mirrorOf: `staff_invites/${username}`,
         })
         migrated += 1
       }
       await this.fetchStaff()
-      return migrated
+      return { migrated, backfilled, failed: [...failed] }
+    },
+
+    // One-time role rename: `staff` -> `judge`.
+    //
+    // The `staff` role was removed from VALID_ROLES and from the
+    // firestore.rules role allowlists in the same deploy that added this
+    // button, so any doc still carrying role:'staff' cannot sign in until
+    // this runs. Superadmin is unaffected (its role never changed), so it
+    // stays able to reach Accounts and run the migration.
+    //
+    // A `staff` invite can no longer be claimed either (hasValidInvite
+    // only accepts 'admin' now), so converting it to 'judge' simply makes
+    // the stale row consistent — it stays inert, which is fine because
+    // judges authenticate by email, not by GitHub invite.
+    async migrateStaffToJudges() {
+      this.isLoading = true
+      this.error = null
+
+      try {
+        const [staffSnap, inviteSnap] =
+          await Promise.all([
+            getDocs(collection(db, 'staff')),
+            getDocs(collection(db, 'staff_invites')).catch(
+              () => ({ docs: [] })
+            )
+          ])
+
+        let staffConverted = 0
+        let invitesConverted = 0
+
+        for (const d of staffSnap.docs) {
+          if (d.data().role !== 'staff') continue
+          await updateDoc(d.ref, {
+            role: 'judge',
+            migratedAt: serverTimestamp()
+          })
+          staffConverted += 1
+        }
+
+        for (const d of inviteSnap.docs || []) {
+          if (d.data().role !== 'staff') continue
+          await updateDoc(d.ref, {
+            role: 'judge',
+            migratedAt: serverTimestamp()
+          })
+          invitesConverted += 1
+        }
+
+        await this.fetchStaff()
+
+        return { staffConverted, invitesConverted }
+      } catch (error) {
+        console.error('Migrate staff -> judge error:', error)
+        this.error = friendlyError(
+          error,
+          'Unable to migrate staff accounts to judges.'
+        )
+        throw error
+      } finally {
+        this.isLoading = false
+      }
     },
 
     async toggleActive(member) {
