@@ -80,9 +80,9 @@ const handleFileUpload = (event) => {
   const file = event.target.files[0]
 
   if (file) {
-    const maxSize = 100 * 1024 * 1024 // 100MB — R2 free-tier friendly
+    const maxSize = 1024 * 1024 * 1024 // 1GB — R2 free-tier friendly
     if (file.size > maxSize) {
-      fileError.value = 'Video file size must be 100MB or less.'
+      fileError.value = 'Video file size must be 1GB or less.'
       form.videoFile = null
       fileName.value = ''
       event.target.value = ''
@@ -346,7 +346,7 @@ const submitVideoProject = async () => {
                       />
                     </svg>
                     <p class="text-sm text-gray-300 font-semibold">Click or drag a video here</p>
-                    <p class="text-xs text-gray-500 mt-1">MP4, WebM (Max 100MB)</p>
+                    <p class="text-xs text-gray-500 mt-1">MP4, WebM (Max 1GB)</p>
                   </div>
 
                   <div v-else class="text-center px-4 z-20 pointer-events-none">
