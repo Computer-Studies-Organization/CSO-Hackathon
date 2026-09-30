@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ChevronDown, ExternalLink, Save } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { ChevronDown, ExternalLink, Maximize2, Save, X } from 'lucide-vue-next'
 
 import { useAuthStore } from '@/stores/auth'
 import { useSubmissionStore } from '@/stores/submission'
@@ -18,6 +18,25 @@ const scoresStore = useScoresStore()
 const search = ref('')
 const openUid = ref(null)
 const notice = ref(null)
+
+// Theater mode — inline overlay player (no new tab).
+const theater = ref(null) // { title, embedUrl }
+
+const openTheater = (videoUrl, title) => {
+  if (!videoUrl) return
+  theater.value = { title: title || 'Video submission', embedUrl: videoUrl }
+}
+
+const closeTheater = () => {
+  theater.value = null
+}
+
+const onKeydown = (e) => {
+  if (e.key === 'Escape' && theater.value) closeTheater()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const draft = reactive({
   scores: Object.fromEntries(CRITERIA.map((c) => [c.key, null])),
@@ -284,15 +303,19 @@ const error = computed(() => scoresStore.error || submissionStore.error || video
             >
               Repository <ExternalLink :size="13" />
             </a>
-            <a
+            <button
               v-if="r.video?.videoUrl"
-              :href="r.video.videoUrl"
-              target="_blank"
-              rel="noopener"
+              type="button"
               class="inline-flex items-center gap-1.5 text-xs font-bold text-sky-300 hover:text-sky-200 underline"
+              @click="
+                openTheater(
+                  r.video.videoUrl,
+                  r.video.groupName || r.video.projectName || 'Video submission',
+                )
+              "
             >
-              Watch video <ExternalLink :size="13" />
-            </a>
+              Watch video <Maximize2 :size="13" />
+            </button>
             <span v-else class="text-xs font-bold text-gray-500"> No video submitted </span>
           </div>
 
@@ -427,5 +450,50 @@ const error = computed(() => scoresStore.error || submissionStore.error || video
       @next="next"
       @toggle-show-all="toggleShowAll"
     />
+
+    <!-- ========================= -->
+    <!-- THEATER MODE OVERLAY -->
+    <!-- ========================= -->
+    <Teleport to="body">
+      <div
+        v-if="theater"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="theater.title"
+        @click.self="closeTheater"
+      >
+        <!-- Top bar -->
+        <div
+          class="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-white/10"
+        >
+          <p class="text-sm font-semibold text-white truncate">{{ theater.title }}</p>
+
+          <button
+            type="button"
+            class="shrink-0 p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
+            aria-label="Close theater mode"
+            @click="closeTheater"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <!-- Stage — centered player, theater-style -->
+        <div class="flex-1 min-h-0 flex items-center justify-center p-3 sm:p-6">
+          <div
+            class="relative w-full max-w-6xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl"
+          >
+            <video :src="theater.embedUrl" controls autoplay playsinline class="w-full h-full" />
+          </div>
+        </div>
+
+        <!-- Bottom hint -->
+        <p class="pb-4 text-center text-xs text-gray-500">
+          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-gray-300">Esc</kbd>
+          to exit theater mode
+        </p>
+      </div>
+    </Teleport>
   </main>
 </template>
