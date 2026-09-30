@@ -53,49 +53,105 @@ See the [Vite Configuration Reference](https://vite.dev/config/).
 
 ---
 
-## Panels, roles & navigation
+## Installation
 
-| Panel            | Route                                                                                       | Allowed roles             |
-| ---------------- | ------------------------------------------------------------------------------------------- | ------------------------- |
-| Participant site | `/`, `/submit/video`, `/submit/repository`, `/criteria`                                     | any signed-in participant |
-| **Admin panel**  | `/admin` (+ `/admin/submissions`, `/admin/videos`, `/admin/scores`, `/admin/accounts`)      | `admin`, `superadmin`     |
-| **Judges panel** | `/judges` (+ `/judges/scoring`, `/judges/repository`, `/judges/videos`, `/judges/criteria`) | `judge`                   |
+Clone the repository and install the required dependencies:
 
-- **Desktop** → fixed left sidebar (`src/views/Admin/layout.vue`, `src/views/Judges/layout.vue`).
-- **Mobile / small screens** → **hamburger (☰) menu** in the header opens a slide-in drawer with the same items, plus _Back to Website_ and sign-out. (The old scrollable pill tabs were removed.)
-- Header always shows a **breadcrumb**: `Superadmin ▸ Video Submissions`, `Admin ▸ Accounts`, `Judges ▸ Scoring`, etc. (the first segment reflects the signed-in role).
-- **Video → theater mode**: clicking a thumbnail on the Videos page, or _Watch video_ on the Scoring page, plays **inline in an overlay** — no new tab. `Esc` or the backdrop closes it. (`Repository ↗` links still open a new tab by design.)
-- Role enforcement lives in `firestore.rules` + the route guards in `src/router/index.js`.
+```sh
+npm install
+```
+
+Create your local environment file and fill in the Firebase web config:
+
+```sh
+cp .env.example .env
+```
+
+| Variable                 | Description                                             |
+| ------------------------ | ------------------------------------------------------- |
+| `VITE_FIREBASE_*`        | Firebase web app config (Console → Project settings)    |
+| `VITE_VIDEO_WORKER_URL`  | Worker base URL, e.g. `https://cso-videos.<account>.workers.dev` |
+
+Then run the app:
+
+```sh
+npm run dev      # local dev server (http://localhost:5173)
+npm run build    # production bundle → dist/
+npm run preview  # serve the built bundle
+npm run format   # Prettier over src/
+```
+
+### Tests
+
+```sh
+npm run test:worker   # Worker unit tests (presign validation, Range parsing, serve routing)
+npm run test:rules    # Firestore rules tests (Firebase emulator)
+```
 
 ---
 
-## Video uploads (Cloudflare R2)
+## Video upload flow (Cloudflare R2)
 
-Demo videos no longer use Google Drive / Apps Script. The flow is:
+Demo videos no longer use Google Drive / Apps Script.
 
-1. Client `POST /presign` on the Cloudflare Worker (`worker/`) with a Firebase ID token
-2. Browser `PUT`s the file directly to a presigned R2 URL (max **1 GiB**)
+```
+┌──────────┐  1. POST /presign (Firebase ID token)  ┌──────────────┐
+│  Browser │ ─────────────────────────────────────▶ │ cso-videos   │
+│  (Vue)   │ ◀─ 2. presigned URL + r2Key + publicUrl│ Worker       │
+│          │                                        └──────┬───────┘
+│          │  3. PUT file ────────────────────────────▶ R2  │
+│          │  4. write video_submissions/{uid}              │
+│          │  5. player GET /videos/… (Range → 206) ◀───────┘
+└──────────┘
+```
+
+1. Client `POST /presign` on the Cloudflare Worker with a Firebase ID token
+2. Browser `PUT`s the file directly to the presigned R2 URL (**max 1 GiB** = `1073741824`)
 3. Client writes `video_submissions/{uid}` with `videoUrl` + `r2Key`
-4. Player streams via Worker `GET /videos/…` (HTTP Range / `206` for seeking)
+4. Player streams via Worker `GET /videos/…` with HTTP Range support (seeking)
 
-### Limits & validation
+### Worker setup
 
-| Check                  | Where                                                                                                       | Value                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Max file size          | `worker/wrangler.toml` → `MAX_UPLOAD_BYTES` (also the live Worker var) + default in `worker/src/presign.js` | `1073741824` B = **1 GiB** → otherwise `413`                              |
-| Client-side guard      | `src/stores/videosubmission.js`, `src/views/SubmitVideoView.vue`                                            | 1 GiB                                                                     |
-| Allowed content types  | `worker/src/presign.js` → `ALLOWED_VIDEO_TYPES`                                                             | `video/mp4`, `video/webm`, `video/quicktime`, `video/x-m4v`, `video/mpeg` |
-| Presigned URL lifetime | `worker/src/presign.js` → `expiresIn`                                                                       | `900` s (15 min)                                                          |
-| CORS allowlist         | `worker/wrangler.toml` → `ALLOWED_ORIGINS`                                                                  | `localhost:5173`, `cso-opensource.pages.dev`, Firebase hosting domains    |
-| Storage namespace      | presign key layout                                                                                          | `videos/{uid}/{uuid}.{ext}` (one folder per user)                         |
+```sh
+cd worker && npm install
+cp .dev.vars.example .dev.vars   # fill R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+npx wrangler dev                 # local
+npx wrangler deploy              # production
+```
 
-> If you raise the cap, update **all** of them (Worker var, `wrangler.toml`, the `presign.js` default, and the two client checks) and redeploy both Worker and Pages.
+Configuration lives in `worker/wrangler.toml`:
 
-### Video guidelines (this is what fixes mobile buffering)
+| Key                   | Purpose                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `MAX_UPLOAD_BYTES`    | upload cap (`"1073741824"` = 1 GiB); mirrored in `worker/src/presign.js` and the two client checks |
+| `ALLOWED_ORIGINS`     | CORS allowlist (localhost, Pages, Firebase hosting)         |
+| `FIREBASE_PROJECT_ID` | used to verify the Firebase ID token                        |
+| `[[r2_buckets]]`      | `VIDEOS` binding → bucket `cso-video-submissions`           |
 
-A raw 4K/60 capture (900 MB+, ~24 Mbps, `moov` atom at the **end** of the file) stalls on a phone. Before uploading:
+Allowed content types (`worker/src/presign.js`): `video/mp4`, `video/webm`, `video/quicktime`, `video/x-m4v`, `video/mpeg`. Presigned URLs expire after **15 minutes**.
 
-- **1920×1080, 30 fps, H.264 High, CRF 23, `yuv420p`, AAC 128 k, `+faststart`**
+### R2 dashboard
+
+1. Create bucket: `cso-video-submissions`
+2. Settings → CORS: paste `worker/r2-cors.json`
+3. R2 → Manage API Tokens → Object Read & Write for that bucket → put the keys in `worker/.dev.vars` (and Worker secrets in production)
+
+### Firestore rules
+
+```sh
+firebase deploy --only firestore:rules
+```
+
+### Cloudflare Pages (app hosting)
+
+- Production builds are generated from git, and `.env` is gitignored — so the build has no
+  `VITE_VIDEO_WORKER_URL` unless you set it under **Pages → Settings → Environment variables**
+  (Production **and** Preview). Without it the form shows *"Upload is not configured"*.
+
+### Recommended video encoding
+
+Upload 1080p / 30 fps H.264 with `+faststart` (the `moov` atom goes to the front of the file so
+playback can start immediately):
 
 ```sh
 ffmpeg -i input.mp4 \
@@ -107,56 +163,31 @@ ffmpeg -i input.mp4 \
   output-1080p.mp4
 ```
 
-Real result from this project: **954 MB 4K/60 → 44 MB** (≈1.1 Mbps), same duration, `moov` moved to the front.
+### Playback URL
 
-Why it matters:
-
-- `+faststart` puts `moov` first → the player can start playback immediately instead of downloading the whole file first.
-- `Accept-Ranges` + `206` allow seeking; the Worker also sets `Cache-Control: public, max-age=31536000, immutable` and `X-Content-Type-Options: nosniff`.
-- ~1–3 Mbps at 1080p30 fits comfortably inside typical mobile bandwidth, so judges don't hit the spinner.
-
-### Setup
-
-```sh
-# Worker
-cd worker && npm install
-cp .dev.vars.example .dev.vars   # fill R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
-npx wrangler deploy
-
-# R2 dashboard
-# - Create bucket: cso-video-submissions
-# - Settings → CORS: paste worker/r2-cors.json
-
-# App
-# Set VITE_VIDEO_WORKER_URL=https://cso-videos.<account>.workers.dev in .env
-npm run build
-
-# Firestore rules
-firebase deploy --only firestore:rules
+```
+https://cso-videos.<account>.workers.dev/videos/<uid>/<file>.mp4
 ```
 
-> **Cloudflare Pages:** production builds are generated from git, and `.env` is gitignored — so the build has **no** `VITE_VIDEO_WORKER_URL` and the form shows _"Upload is not configured"_. Set it under **Pages → Settings → Environment variables** for **Production and Preview**, then redeploy.
+The Worker serves `Accept-Ranges: bytes` (→ `206 Partial Content`), `Cache-Control: public,
+max-age=31536000, immutable`, and `X-Content-Type-Options: nosniff`. The bucket itself is not
+publicly listable — playback goes through the Worker only.
 
 ---
 
-## Testing
+## Panels & roles
 
-```sh
-npm run test:worker   # Worker unit tests — Range parsing, presign validation (content type, 1 GB cap, auth), serve routing
-npm run test:rules    # Firestore rules tests (Firebase emulator) — invites, role immutability, submissions
-npm run build         # Production build (Vite)
-npm run format        # Prettier over src/
-```
+| Panel            | Route                                  | Allowed roles             |
+| ---------------- | -------------------------------------- | ------------------------- |
+| Participant site | `/`, `/submit/video`, `/submit/repository`, `/criteria` | any signed-in participant |
+| Admin panel      | `/admin`                               | `admin`, `superadmin`     |
+| Judges panel     | `/judges`                              | `judge`                   |
+
+Roles are enforced in `firestore.rules` and by the route guards in `src/router/index.js`.
 
 ---
 
-## Installation
+## Security
 
-Clone the repository and install the required dependencies:
-
-```sh
-npm install
-npm run dev
-```
-
-Copy `.env.example` to `.env` and fill in the Firebase web config (and `VITE_VIDEO_WORKER_URL`), then `npm run build` for a production bundle.
+See [SECURITY.md](./SECURITY.md) for the supported branch, vulnerability reporting, and the
+security model (Worker auth, upload hardening, Firestore rules, secrets).
