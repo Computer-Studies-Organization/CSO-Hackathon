@@ -58,7 +58,7 @@ See the [Vite Configuration Reference](https://vite.dev/config/).
 Demo videos no longer use Google Drive / Apps Script. The flow is:
 
 1. Client `POST /presign` on the Cloudflare Worker (`worker/`) with a Firebase ID token
-2. Browser `PUT`s the file directly to a presigned R2 URL (max **100MB**)
+2. Browser `PUT`s the file directly to a presigned R2 URL (max **1GB**)
 3. Client writes `video_submissions/{uid}` with `videoUrl` + `r2Key`
 4. Admin player streams via Worker `GET /videos/…` (Range support)
 

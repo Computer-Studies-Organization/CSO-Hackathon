@@ -44,7 +44,7 @@ describe('parseRangeHeader', () => {
 describe('handlePresign validation', () => {
   const baseEnv = {
     FIREBASE_PROJECT_ID: 'cso-repository',
-    MAX_UPLOAD_BYTES: '104857600',
+    MAX_UPLOAD_BYTES: '1073741824',
     R2_ACCOUNT_ID: 'acct',
     R2_ACCESS_KEY_ID: 'key',
     R2_SECRET_ACCESS_KEY: 'secret',
@@ -86,9 +86,9 @@ describe('handlePresign validation', () => {
     assert.equal(res.status, 400)
   })
 
-  test('rejects size over 100MB', async () => {
+  test('rejects size over 1GB', async () => {
     const res = await handlePresign(
-      makeRequest({ contentType: 'video/mp4', size: 101 * 1024 * 1024 }),
+      makeRequest({ contentType: 'video/mp4', size: 1024 * 1024 * 1024 + 1 }),
       baseEnv,
     )
     assert.equal(res.status, 413)

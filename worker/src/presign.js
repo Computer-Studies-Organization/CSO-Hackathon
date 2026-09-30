@@ -44,7 +44,7 @@ export async function handlePresign(request, env) {
     )
   }
 
-  const maxBytes = Number(env.MAX_UPLOAD_BYTES || 100 * 1024 * 1024)
+  const maxBytes = Number(env.MAX_UPLOAD_BYTES || 1024 * 1024 * 1024)
   const size = Number(body?.size)
   if (!Number.isFinite(size) || size <= 0) {
     return json({ error: 'Missing or invalid file size' }, 400)

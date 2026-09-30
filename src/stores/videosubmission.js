@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/config'
 
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024 // 100MB
+const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024 // 1GB
 
 export const useVideoSubmissionStore = defineStore('videoSubmission', {
   state: () => ({
@@ -112,7 +112,7 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
         }
 
         if (videoFile.size > MAX_UPLOAD_BYTES) {
-          throw new Error('Video file size must be 100MB or less.')
+          throw new Error('Video file size must be 1GB or less.')
         }
 
         // --------------------------------------------------

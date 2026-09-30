@@ -7,7 +7,7 @@ compatibility_date = "2026-09-24"
 
 [vars]
 FIREBASE_PROJECT_ID = "cso-repository"
-MAX_UPLOAD_BYTES = "104857600" # 100 MB
+MAX_UPLOAD_BYTES = "1073741824" # 1 GB
 ALLOWED_ORIGINS = "http://localhost:5173,https://cso-opensource.pages.dev,https://cso-repository.firebaseapp.com,https://cso-repository.web.app"
 
 [[r2_buckets]]
