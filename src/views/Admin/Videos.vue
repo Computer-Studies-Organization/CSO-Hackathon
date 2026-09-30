@@ -192,6 +192,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </p>
 
               <div v-if="s.members?.length" class="mt-1 flex flex-wrap gap-1.5">
+                <h6 class="text-sm text-gray-200 font-semibold mr-1">Members:</h6>
                 <span
                   v-for="(m, i) in s.members"
                   :key="i"
@@ -200,10 +201,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   {{ m }}
                 </span>
               </div>
-
               <p class="mt-1 text-xs text-gray-400">
-                <template v-if="s.email">{{ s.email }} · </template>
-                <template v-if="s.techStack">{{ s.techStack }} · </template>
+                <!-- <template v-if="s.email">GitHub Account Submitted : {{ s.email }} </template> <br> -->
+                <template v-if="s.techStack">Tech Stack : {{ s.techStack }}</template> <br> <br>
                 {{ formatDate(s.submittedAt) }}
               </p>
 
