@@ -12,16 +12,18 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 
 // ffmpeg.wasm ships its runtime as loose files (core wasm + a class worker that
 // imports its siblings) — they cannot go through the JS bundle. This plugin
-// serves them from /ffmpeg/ in dev and copies them into dist/ on build, so the
-// app stays self-hosted (no CDN, no CSP changes) and the version always matches
-// package.json.
+// serves them from /ffmpeg/ in dev; on build only the tiny class-worker files
+// are copied into dist/ — ffmpeg-core.wasm is 30.7 MiB, over the 25 MiB
+// per-file limit Cloudflare Pages rejects, so production loads the core from
+// the jsdelivr CDN (see src/utils/transcode.js).
 const FFMPEG_DIR = 'ffmpeg'
 const FFMPEG_SOURCES = [
   {
     dir: 'node_modules/@ffmpeg/core/dist/esm',
     mimes: { '.js': 'text/javascript', '.wasm': 'application/wasm' },
+    emit: false, // CDN in production, local only in dev
   },
-  { dir: 'node_modules/@ffmpeg/ffmpeg/dist/esm', mimes: { '.js': 'text/javascript' } },
+  { dir: 'node_modules/@ffmpeg/ffmpeg/dist/esm', mimes: { '.js': 'text/javascript' }, emit: true },
 ]
 
 function ffmpegRuntime() {
@@ -31,6 +33,8 @@ function ffmpegRuntime() {
         .filter((name) => mimes[extname(name)])
         .map((name) => ({ path: join(root, dir, name), name, mime: mimes[extname(name)] })),
     )
+
+  const emitted = () => FFMPEG_SOURCES.filter(({ emit }) => emit !== false)
 
   return {
     name: 'ffmpeg-runtime',
@@ -47,12 +51,14 @@ function ffmpegRuntime() {
       })
     },
     generateBundle() {
-      for (const file of list()) {
-        this.emitFile({
-          type: 'asset',
-          fileName: `${FFMPEG_DIR}/${file.name}`,
-          source: readFileSync(file.path),
-        })
+      for (const { dir, mimes } of emitted()) {
+        for (const name of readdirSync(join(root, dir)).filter((n) => mimes[extname(n)])) {
+          this.emitFile({
+            type: 'asset',
+            fileName: `${FFMPEG_DIR}/${name}`,
+            source: readFileSync(join(root, dir, name)),
+          })
+        }
       }
     },
   }

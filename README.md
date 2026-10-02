@@ -174,9 +174,13 @@ ffmpeg.wasm before anything leaves the tab (`src/utils/transcode.js`):
   (actually `{base}.{srcExt}.original`) = the untouched source, mirrored in
   Firestore as `r2OriginalKey` + `sizeBytesOriginal`
 
-`@ffmpeg/core` (≈32 MB wasm) is copied to `dist/ffmpeg/` at build time by the
-plugin in `vite.config.js` — same-origin, no CDN and no extra CSP origins, but
-`script-src` does need `'wasm-unsafe-eval'` (already in `public/_headers`).
+`ffmpeg-core.wasm` is 30.7 MiB — Cloudflare Pages rejects any file over 25 MiB —
+so production loads the pinned `@ffmpeg/core@0.12.10` build from jsdelivr and
+converts it to blob URLs (`src/utils/transcode.js`); `vite.config.js` serves the
+same files from `node_modules` in dev and ships only the tiny class worker to
+`dist/ffmpeg/`. `public/_headers` allows exactly what that needs:
+`'wasm-unsafe-eval'`, `blob:` and `https://cdn.jsdelivr.net` in
+`script-src`/`connect-src`, plus `worker-src 'self' blob:`.
 
 **Existing files in R2** — `scripts/reduce-videos.mjs` runs the same pipeline
 over the whole bucket:

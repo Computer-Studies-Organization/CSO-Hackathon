@@ -1,10 +1,41 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile } from '@ffmpeg/util'
+import { fetchFile, toBlobURL } from '@ffmpeg/util'
 
 const BASE = import.meta.env.BASE_URL || '/'
-const CORE_URL = `${BASE}ffmpeg/ffmpeg-core.js`
-const WASM_URL = `${BASE}ffmpeg/ffmpeg-core.wasm`
 const CLASS_WORKER_URL = `${BASE}ffmpeg/worker.js`
+
+// ffmpeg-core.wasm is 30.7 MiB — Cloudflare Pages rejects anything over 25 MiB
+// per file — so production pulls the pinned npm build from jsdelivr and turns it
+// into blob URLs (same-origin, CORS + CSP safe). Dev serves it straight from
+// node_modules via the vite plugin. Keep in sync with package.json.
+const CORE_VERSION = '0.12.10'
+const CORE_CDN = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${CORE_VERSION}/dist/esm`
+
+let corePromise = null
+
+async function loadCoreUrls() {
+  if (import.meta.env.DEV) {
+    return {
+      coreURL: `${BASE}ffmpeg/ffmpeg-core.js`,
+      wasmURL: `${BASE}ffmpeg/ffmpeg-core.wasm`,
+    }
+  }
+  return {
+    coreURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${CORE_CDN}/ffmpeg-core.wasm`, 'application/wasm'),
+  }
+}
+
+// ~31 MB — cache the blob URLs for the session, retry on failure.
+function coreUrls() {
+  if (!corePromise) {
+    corePromise = loadCoreUrls().catch((err) => {
+      corePromise = null
+      throw err
+    })
+  }
+  return corePromise
+}
 
 // README recipe (1080p / 30fps H.264 + faststart). `scale` never upscales —
 // a 720p source stays 720p. `veryfast` instead of `medium`: the single-thread
@@ -67,10 +98,11 @@ async function getFFmpeg() {
     // Publish before load() so terminateTranscoder() can kill a load in flight.
     ffmpeg = instance
     try {
+      const { coreURL, wasmURL } = await coreUrls()
       await instance.load({
         classWorkerURL: CLASS_WORKER_URL,
-        coreURL: CORE_URL,
-        wasmURL: WASM_URL,
+        coreURL,
+        wasmURL,
       })
     } catch (err) {
       if (ffmpeg === instance) ffmpeg = null // never cache a broken instance
