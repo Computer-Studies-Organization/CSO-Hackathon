@@ -13,6 +13,9 @@
     "deploy:worker": "npm --prefix worker run deploy"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@tailwindcss/vite": "^4.3.3",
     "firebase": "^12.19.0",
     "lucide-vue-next": "^1.0.0",
@@ -25,6 +28,7 @@
     "@firebase/rules-unit-testing": "^5.0.2",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitejs/plugin-vue-jsx": "^5.1.6",
+    "aws4fetch": "^1.0.20",
     "prettier": "3.9.5",
     "vite": "^8.1.5",
     "vite-plugin-vue-devtools": "^8.1.5"

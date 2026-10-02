@@ -106,9 +106,13 @@ Demo videos no longer use Google Drive / Apps Script.
 ```
 
 1. Client `POST /presign` on the Cloudflare Worker with a Firebase ID token
-2. Browser `PUT`s the file directly to the presigned R2 URL (**max 1 GiB** = `1073741824`)
-3. Client writes `video_submissions/{uid}` with `videoUrl` + `r2Key`
-4. Player streams via Worker `GET /videos/…` with HTTP Range support (seeking)
+2. Files ≤ 400 MB are re-encoded **in the browser first** (ffmpeg.wasm → 1080p30
+   H.264 CRF 23); the compressed bytes go to `key`, the untouched source is kept
+   at `{key}.original`
+3. Browser `PUT`s the bytes directly to the presigned R2 URL(s) (**max 1 GiB** = `1073741824`)
+4. Client writes `video_submissions/{uid}` with `videoUrl` + `r2Key` (and
+   `r2OriginalKey` when the source was kept)
+5. Player streams via Pages Function `GET /videos/…` with HTTP Range support (seeking)
 
 ### Worker setup
 
@@ -155,6 +159,45 @@ requests stay on the free unlimited tier. Objects over 512 MiB are never cached
 
 Allowed content types (`worker/src/presign.js`): `video/mp4`, `video/webm`, `video/quicktime`, `video/x-m4v`, `video/mpeg`. Presigned URLs expire after **15 minutes**.
 
+### Reducing video size
+
+**New uploads** — the submission form re-encodes the file in the browser with
+ffmpeg.wasm before anything leaves the tab (`src/utils/transcode.js`):
+
+- same recipe as _Recommended video encoding_ below (1080p/30 H.264, CRF 23,
+  `+faststart`, never upscales)
+- progress bar + **Cancel** while it runs; any failure (or a file that did not
+  get smaller) falls back to uploading the file untouched
+- files over `TRANSCODE_MAX_BYTES` (400 MB, `src/utils/videoLimits.js`) skip the
+  browser pass — the WASM heap cannot hold them; use the batch script instead
+- object layout: `{key}` (`.mp4`) = the small public file, `{key}.original`
+  (actually `{base}.{srcExt}.original`) = the untouched source, mirrored in
+  Firestore as `r2OriginalKey` + `sizeBytesOriginal`
+
+`@ffmpeg/core` (≈32 MB wasm) is copied to `dist/ffmpeg/` at build time by the
+plugin in `vite.config.js` — same-origin, no CDN and no extra CSP origins, but
+`script-src` does need `'wasm-unsafe-eval'` (already in `public/_headers`).
+
+**Existing files in R2** — `scripts/reduce-videos.mjs` runs the same pipeline
+over the whole bucket:
+
+```sh
+node scripts/reduce-videos.mjs --dry-run           # list candidates only
+node scripts/reduce-videos.mjs                     # reduce everything ≥ 100 MB
+node scripts/reduce-videos.mjs --min-mb 500 --limit 3
+```
+
+Per object: download → ffmpeg → server-side copy to `{key}.original` → overwrite
+`{key}` → drop the edge-cache entry. Anything that already has an `.original`
+companion is skipped, so re-running is safe, and anything that did not shrink is
+left alone. Credentials come from `worker/.dev.vars` (or `R2_*` env vars);
+`ffmpeg` on PATH is used (falls back to `libopenh264` when `libx264` is missing).
+
+Playback is cached with `immutable`, so replacing an object must also purge the
+edge: set `PURGE_SECRET` as a **Pages environment variable** (and in
+`worker/.dev.vars` for the script) — the script then calls
+`POST /videos/__purge` after every replace.
+
 ### R2 dashboard
 
 1. Create bucket: `cso-video-submissions`
@@ -176,7 +219,8 @@ firebase deploy --only firestore:rules
 ### Recommended video encoding
 
 Upload 1080p / 30 fps H.264 with `+faststart` (the `moov` atom goes to the front of the file so
-playback can start immediately):
+playback can start immediately). The submission form applies this automatically now — keep the
+command for manual/offline encodes (`scripts/reduce-videos.mjs` uses the same arguments):
 
 ```sh
 ffmpeg -i input.mp4 \

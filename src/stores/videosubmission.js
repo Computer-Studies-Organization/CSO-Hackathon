@@ -1,8 +1,14 @@
 import { defineStore } from 'pinia'
 import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/config'
+import { TRANSCODE_MAX_BYTES } from '@/utils/videoLimits'
 
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024 // 1GB
+
+// One submit at a time — module scope keeps the AbortController and the
+// (lazily loaded) ffmpeg canceller out of reactive store state.
+let activeAbort = null
+let cancelTranscoder = null
 
 export const useVideoSubmissionStore = defineStore('videoSubmission', {
   state: () => ({
@@ -11,9 +17,20 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
     isSubmitting: false,
     isLoading: false,
     error: null,
+    // { stage: 'transcode'|'upload', percent: 0..1|null, detail?: string }
+    progress: null,
+    // human note about what was actually uploaded (compressed / as-is)
+    note: null,
   }),
 
   actions: {
+    // Abort the in-flight submit (kills the ffmpeg worker + every fetch).
+    cancelSubmit() {
+      if (!this.isSubmitting) return
+      cancelTranscoder?.()
+      activeAbort?.abort()
+    },
+
     // Check if the current user has already submitted a video
     async fetchMine(user) {
       if (!user) return null
@@ -76,17 +93,25 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
       }
     },
 
-    // Upload video → Cloudflare R2 (presigned PUT) → save metadata to Firestore.
+    // Upload video → reduce it in the browser (ffmpeg.wasm) → Cloudflare R2
+    // (presigned PUT) → save metadata to Firestore.
     //
     // Flow:
+    //   0. transcode to 1080p/CRF23 (files ≤ TRANSCODE_MAX_BYTES) so the
+    //      public object is small; the untouched source is kept beside it at
+    //      `{key}.original` when the source actually shrank
     //   1. POST {workerUrl}/presign with Firebase ID token
-    //   2. PUT raw File to returned uploadUrl (Content-Type signed)
+    //   2. PUT bytes → returned uploadUrl (Content-Type signed)
     //   3. setDoc video_submissions/{uid} with publicUrl + r2Key
     //
     // repoSubmission = submissions/{uid}
     async submitVideo(user, formPayload, workerUrl, repoSubmission) {
       this.isSubmitting = true
       this.error = null
+      this.progress = null
+      this.note = null
+      activeAbort = new AbortController()
+      const signal = activeAbort.signal
 
       try {
         if (!user) {
@@ -116,8 +141,58 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
         }
 
         // --------------------------------------------------
-        // 1. Request presigned PUT URL from Worker
+        // 0. Reduce (browser, ffmpeg.wasm) — never blocks the submit:
+        //    any failure falls back to uploading the source file.
         // --------------------------------------------------
+        let uploadFile = videoFile
+        let uploadContentType = videoFile.type
+        let reducedBlob = null
+        let reduceNote = null
+
+        if (videoFile.size <= TRANSCODE_MAX_BYTES) {
+          this.progress = { stage: 'transcode', percent: null, detail: 'Loading encoder…' }
+          try {
+            const { transcodeVideo, terminateTranscoder } = await import('@/utils/transcode')
+            cancelTranscoder = terminateTranscoder
+
+            const blob = await transcodeVideo(videoFile, {
+              signal,
+              onProgress: (percent) => {
+                this.progress = {
+                  stage: 'transcode',
+                  percent,
+                  detail: 'Compressing video in your browser…',
+                }
+              },
+            })
+
+            if (blob.size < videoFile.size) {
+              reducedBlob = blob
+              uploadFile = blob
+              uploadContentType = 'video/mp4'
+            } else {
+              reduceNote = 'Video was already compact — uploaded as-is.'
+            }
+          } catch (err) {
+            if (signal.aborted || err?.name === 'AbortError') {
+              throw new Error('Upload cancelled.')
+            }
+            console.warn('Browser compression failed, uploading the original file:', err)
+            reduceNote = 'Compression unavailable — uploaded the original file.'
+          } finally {
+            cancelTranscoder = null
+          }
+        } else {
+          reduceNote = 'Large file — uploaded as-is (will be compressed by the organizers).'
+        }
+
+        if (signal.aborted) throw new Error('Upload cancelled.')
+
+        // --------------------------------------------------
+        // 1. Request presigned PUT URL(s) from Worker
+        // --------------------------------------------------
+        this.progress = { stage: 'upload', percent: null, detail: 'Preparing upload…' }
+
         const idToken = await user.getIdToken()
 
         const presignRes = await fetch(`${workerUrl.replace(/\/$/, '')}/presign`, {
@@ -126,9 +201,12 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
             Authorization: `Bearer ${idToken}`,
             'Content-Type': 'application/json',
           },
+          signal,
           body: JSON.stringify({
             contentType: videoFile.type,
-            size: videoFile.size,
+            size: uploadFile.size,
+            originalSize: videoFile.size,
+            reduce: !!reducedBlob,
             filename: videoFile.name,
           }),
         })
@@ -144,25 +222,55 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
           throw new Error(presignData?.error || `Could not prepare upload (${presignRes.status}).`)
         }
 
-        const { uploadUrl, key, publicUrl } = presignData || {}
+        const { uploadUrl, key, publicUrl, originalKey, originalUploadUrl } = presignData || {}
         if (!uploadUrl || !key || !publicUrl) {
           throw new Error('Upload service returned an invalid response.')
         }
+        if (reducedBlob && !originalUploadUrl) {
+          throw new Error('Upload service did not return an original-file slot.')
+        }
 
         // --------------------------------------------------
-        // 2. PUT file bytes → R2 (direct, Content-Type signed)
+        // 2. PUT bytes → R2 (direct, Content-Type signed)
         // --------------------------------------------------
+        this.progress = {
+          stage: 'upload',
+          percent: null,
+          detail: reducedBlob ? 'Uploading compressed video…' : 'Uploading video…',
+        }
+
         const putRes = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
-            'Content-Type': videoFile.type,
+            'Content-Type': uploadContentType,
           },
-          body: videoFile,
+          signal,
+          body: uploadFile,
         })
 
         if (!putRes.ok) {
           throw new Error(`Video upload failed (${putRes.status}). Please try again.`)
         }
+
+        // 2b. Keep the untouched source at {key}.original
+        if (reducedBlob) {
+          const putOriginalRes = await fetch(originalUploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': videoFile.type,
+            },
+            signal,
+            body: videoFile,
+          })
+
+          if (!putOriginalRes.ok) {
+            throw new Error(
+              `The compressed video uploaded, but keeping the original failed (${putOriginalRes.status}). Please try again.`,
+            )
+          }
+        }
+
+        if (signal.aborted) throw new Error('Upload cancelled.')
 
         // --------------------------------------------------
         // 3. Prepare Firestore document
@@ -200,11 +308,13 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
 
           techStack: repoSubmission.techStack || '',
 
-          // Video data (Cloudflare R2 via Worker)
+          // Video data (Cloudflare R2 via Worker) — videoUrl/r2Key always
+          // point at the SMALL file; the source sits at r2OriginalKey.
           videoUrl: publicUrl,
           r2Key: key,
-          contentType: videoFile.type,
-          sizeBytes: videoFile.size,
+          contentType: uploadContentType,
+          sizeBytes: uploadFile.size,
+          ...(reducedBlob ? { r2OriginalKey: originalKey, sizeBytesOriginal: videoFile.size } : {}),
 
           githubUsername,
 
@@ -222,6 +332,7 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
           ...submissionData,
         }
 
+        this.note = reduceNote
         return this.submission
       } catch (err) {
         console.error('Submit video error:', err)
@@ -231,6 +342,9 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
         throw err
       } finally {
         this.isSubmitting = false
+        this.progress = null
+        cancelTranscoder = null
+        activeAbort = null
       }
     },
   },

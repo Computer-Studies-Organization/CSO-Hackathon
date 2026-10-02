@@ -122,6 +122,68 @@ describe('handlePresign validation', () => {
     const data = await res.json()
     assert.match(data.publicUrl, /^https:\/\/media\.example\.com\/videos\/uid-123\//)
   })
+
+  test('no reduce → single key, no .original companion', async () => {
+    const res = await handlePresign(
+      makeRequest({ contentType: 'video/quicktime', size: 1024 }),
+      baseEnv,
+    )
+    const data = await res.json()
+    assert.match(data.key, /^videos\/uid-123\/.+\.mov$/)
+    assert.equal(data.originalKey, null)
+    assert.equal(data.originalUploadUrl, null)
+  })
+
+  test('reduce → public .mp4 key plus a .original companion', async () => {
+    const res = await handlePresign(
+      makeRequest({
+        contentType: 'video/quicktime',
+        size: 512,
+        originalSize: 1024,
+        reduce: true,
+      }),
+      baseEnv,
+    )
+    assert.equal(res.status, 200)
+    const data = await res.json()
+
+    // public key is always .mp4 — that is the reduced file
+    assert.match(data.key, /^videos\/uid-123\/[^/]+\.mp4$/)
+    // original keeps the SOURCE extension and is suffixed .original
+    assert.match(data.originalKey, /^videos\/uid-123\/[^/]+\.mov\.original$/)
+    // same base name → url + ".original"
+    assert.equal(data.originalKey, `${data.key.slice(0, -'.mp4'.length)}.mov.original`)
+
+    assert.ok(data.uploadUrl.includes(data.key))
+    assert.ok(data.originalUploadUrl.includes(data.originalKey))
+    assert.ok(data.uploadUrl.includes('X-Amz-Signature='))
+    assert.ok(data.originalUploadUrl.includes('X-Amz-Signature='))
+    assert.notEqual(data.uploadUrl, data.originalUploadUrl)
+    assert.equal(data.publicUrl, `https://worker.test/${data.key}`)
+  })
+
+  test('reduce without originalSize → 400', async () => {
+    const res = await handlePresign(
+      makeRequest({ contentType: 'video/mp4', size: 512, reduce: true }),
+      baseEnv,
+    )
+    assert.equal(res.status, 400)
+    const data = await res.json()
+    assert.match(data.error, /original file size/)
+  })
+
+  test('reduce with originalSize over 1GB → 413', async () => {
+    const res = await handlePresign(
+      makeRequest({
+        contentType: 'video/mp4',
+        size: 512,
+        originalSize: 1024 * 1024 * 1024 + 1,
+        reduce: true,
+      }),
+      baseEnv,
+    )
+    assert.equal(res.status, 413)
+  })
 })
 
 // ---------------------------------------------------------------------------

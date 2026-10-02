@@ -285,6 +285,20 @@ service cloud.firestore {
         )
         && request.resource.data.r2Key is string
         && request.resource.data.r2Key.matches('videos/' + request.auth.uid + '/[A-Za-z0-9_.-]+')
+        // Optional companion written when the client transcoded before upload:
+        // the untouched source sits at videos/{uid}/{base}.{ext}.original
+        && (
+          !('r2OriginalKey' in request.resource.data)
+          || (
+            request.resource.data.r2OriginalKey is string
+            && request.resource.data.r2OriginalKey
+                 .matches('videos/' + request.auth.uid + '/[A-Za-z0-9_.-]+\\.original')
+          )
+        )
+        && (
+          !('sizeBytesOriginal' in request.resource.data)
+          || request.resource.data.sizeBytesOriginal is int
+        )
         && !('driveUrl' in request.resource.data);
 
       // Admin and Superadmin can update submissions (e.g. review flags).
@@ -293,12 +307,14 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['groupName', 'description', 'projectName', 'members',
                        'membersName', 'repositoryUrl', 'techStack', 'videoUrl',
-                       'r2Key', 'contentType', 'sizeBytes',
+                       'r2Key', 'r2OriginalKey', 'contentType', 'sizeBytes',
+                       'sizeBytesOriginal',
                        'githubUsername', 'email', 'repoVerified', 'repoCheckNote',
                        'reviewedAt', 'reviewedBy', 'notes'])
         && !('driveUrl' in request.resource.data)
         && (!('videoUrl' in request.resource.data)
-            || request.resource.data.videoUrl.matches('https://[a-z0-9.-]+\\.workers\\.dev/videos/[A-Za-z0-9_./-]+'));
+            || request.resource.data.videoUrl.matches('https://[a-z0-9.-]+\\.workers\\.dev/videos/[A-Za-z0-9_./-]+')
+            || request.resource.data.videoUrl.matches('https://cso-opensource\\.pages\\.dev/videos/[A-Za-z0-9_./-]+'));
 
       // Only Superadmin can delete video submissions.
       allow delete: if isSuperadmin();

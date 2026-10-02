@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppLoader from '@/components/uiverse_component/apploader.vue'
@@ -102,6 +102,20 @@ const handleFileUpload = (event) => {
   }
 }
 
+// Progress overlay — compression (ffmpeg.wasm) then the R2 PUT.
+const progressStage = computed(() => videoStore.progress?.stage || '')
+const progressTitle = computed(() =>
+  progressStage.value === 'transcode' ? 'Compressing your video' : 'Uploading your video',
+)
+const progressWidth = computed(() => {
+  const p = videoStore.progress?.percent
+  return typeof p === 'number' && Number.isFinite(p) ? `${Math.round(p * 100)}%` : '100%'
+})
+const progressIndeterminate = computed(() => {
+  const p = videoStore.progress?.percent
+  return typeof p !== 'number' || !Number.isFinite(p)
+})
+
 // Submit Video — group name / description etc. mirrored from repo submission
 const submitVideoProject = async () => {
   if (!authStore.isAuthenticated) {
@@ -132,7 +146,11 @@ const submitVideoProject = async () => {
       repoSubmission.value,
     )
 
-    alert('Video submitted successfully!')
+    alert(
+      videoStore.note
+        ? `Video submitted successfully!\n\n${videoStore.note}`
+        : 'Video submitted successfully!',
+    )
 
     alreadySubmitted.value = true
     form.videoFile = null
@@ -297,18 +315,55 @@ const submitVideoProject = async () => {
 
             <!-- Video Form -->
             <form class="mt-8 space-y-6 relative" @submit.prevent="submitVideoProject">
-              <!-- AppLoader — full screen; mawala ra kung ok na (isSubmitting = false) -->
+              <!-- Progress: compression (ffmpeg.wasm) → upload → saved -->
               <Teleport to="body">
                 <div
                   v-if="videoStore.isSubmitting"
-                  class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black"
+                  class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black px-6"
                   aria-live="polite"
                   aria-busy="true"
                 >
-                  <AppLoader />
-                  <p class="mt-4 text-sm text-gray-300 text-center px-4">
-                    Uploading your video… please wait
-                  </p>
+                  <template v-if="videoStore.progress">
+                    <div
+                      class="w-full max-w-md rounded-2xl border border-white/10 bg-gray-900 p-6 text-center shadow-2xl"
+                    >
+                      <p class="text-sm font-bold text-white">{{ progressTitle }}</p>
+                      <p class="mt-1 text-xs text-gray-400">
+                        {{ videoStore.progress.detail || 'Please wait…' }}
+                      </p>
+
+                      <div class="mt-5 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                        <div
+                          class="h-full rounded-full bg-purple-500 transition-[width] duration-300"
+                          :class="{ 'animate-pulse': progressIndeterminate }"
+                          :style="{ width: progressWidth }"
+                        ></div>
+                      </div>
+
+                      <p class="mt-3 text-[11px] leading-relaxed text-gray-500">
+                        {{
+                          progressStage === 'transcode'
+                            ? 'Optimizing to 1080p before upload — your original file is kept.'
+                            : 'Sending your video to the server…'
+                        }}
+                      </p>
+
+                      <button
+                        type="button"
+                        class="mt-5 px-4 py-2 rounded-lg text-xs font-semibold text-gray-300 border border-white/15 hover:bg-white/10 transition"
+                        @click="videoStore.cancelSubmit()"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <AppLoader />
+                    <p class="mt-4 text-sm text-gray-300 text-center px-4">
+                      Saving your submission… please wait
+                    </p>
+                  </template>
                 </div>
               </Teleport>
 
@@ -346,7 +401,9 @@ const submitVideoProject = async () => {
                       />
                     </svg>
                     <p class="text-sm text-gray-300 font-semibold">Click or drag a video here</p>
-                    <p class="text-xs text-gray-500 mt-1">MP4, WebM (Max 1GB)</p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      MP4, WebM (Max 1GB) — auto-compressed to 1080p before upload
+                    </p>
                   </div>
 
                   <div v-else class="text-center px-4 z-20 pointer-events-none">
