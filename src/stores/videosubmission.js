@@ -5,6 +5,8 @@ import { TRANSCODE_MAX_BYTES } from '@/utils/videoLimits'
 
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024 // 1GB
 
+const fmtMB = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
 // One submit at a time — module scope keeps the AbortController and the
 // (lazily loaded) ffmpeg canceller out of reactive store state.
 let activeAbort = null
@@ -170,6 +172,7 @@ export const useVideoSubmissionStore = defineStore('videoSubmission', {
               reducedBlob = blob
               uploadFile = blob
               uploadContentType = 'video/mp4'
+              reduceNote = `Compressed ${fmtMB(videoFile.size)} → ${fmtMB(blob.size)} (original file kept).`
             } else {
               reduceNote = 'Video was already compact — uploaded as-is.'
             }
