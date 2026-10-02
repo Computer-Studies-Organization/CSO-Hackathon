@@ -11,7 +11,7 @@ const submissionStore = useSubmissionStore()
 const search = ref('')
 
 // Theater mode — fullscreen overlay player
-const theater = ref(null) // { id, title, embedUrl }
+const theater = ref(null)  // { id, title, embedUrl }
 
 onMounted(() => {
   videoStore.fetchAll().catch(() => {})
@@ -225,30 +225,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </p>
             </div>
 
-            <!-- Thumbnail → theater mode -->
+            <!-- Thumbnail → theater mode. Walay background <video> tag aron dili
+                 magsug'g og HTTP request hangtod i-click (zero bandwidth per card). -->
             <div class="w-full lg:w-[420px] shrink-0">
               <button
                 v-if="s.embedUrl"
                 type="button"
-                class="group relative w-full aspect-video rounded-xl overflow-hidden bg-black border border-white/10 cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-400"
+                class="group relative w-full aspect-video rounded-xl overflow-hidden bg-gradient-to-br from-gray-800 to-black border border-white/10 cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-400"
                 :aria-label="`Play video — ${s.groupName || 'submission'}`"
                 @click="openTheater(s)"
               >
-                <div class="absolute inset-0 pointer-events-none">
-                  <video
-                    :src="s.embedUrl"
-                    preload="metadata"
-                    muted
-                    playsinline
-                    class="absolute inset-0 w-full h-full object-cover opacity-60"
-                  />
-                </div>
-
                 <span
-                  class="absolute inset-0 flex flex-col items-center justify-center bg-black/40 group-hover:bg-black/55 transition"
+                  class="absolute inset-0 flex flex-col items-center justify-center bg-black/40 group-hover:bg-black/60 transition duration-200"
                 >
                   <span
-                    class="w-14 h-14 rounded-full bg-purple-500/90 group-hover:bg-purple-400 flex items-center justify-center shadow-lg transition group-hover:scale-105"
+                    class="w-14 h-14 rounded-full bg-purple-500/90 group-hover:bg-purple-400 flex items-center justify-center shadow-lg transition duration-200 group-hover:scale-110"
                   >
                     <Play :size="26" class="text-white ml-0.5" fill="currentColor" />
                   </span>
@@ -293,7 +284,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <Teleport to="body">
       <div
         v-if="theater"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-sm"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/95"
         role="dialog"
         aria-modal="true"
         :aria-label="theater.title"
@@ -308,7 +299,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </p> -->
           <button
             type="button"
-            class="shrink-0 p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
+            class="shrink-0 p-2.5 min-h-11 min-w-11 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
             aria-label="Close theater mode"
             @click="closeTheater"
           >
@@ -316,17 +307,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </button>
         </div>
 
-        <!-- Stage — centered player, theater-style -->
-        <div class="flex-1 min-h-0 flex items-center justify-center p-3 sm:p-6">
-          <div
-            class="relative w-full max-w-6xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl"
-          >
-            <video :src="theater.embedUrl" controls autoplay playsinline class="w-full h-full" />
-          </div>
+        <!-- Stage — video self-sizes to fit: wide screens AND portrait/landscape phones -->
+        <div
+          class="flex-1 min-h-0 w-full mx-auto max-w-6xl flex items-center justify-center p-3 sm:p-6"
+        >
+          <video
+            :src="theater.embedUrl"
+            controls
+            autoplay
+            playsinline
+            class="max-w-full max-h-full rounded-lg bg-black shadow-2xl"
+          />
         </div>
 
         <!-- Bottom hint -->
-        <p class="pb-4 text-center text-xs text-gray-500">
+        <p class="hidden md:block pb-4 text-center text-xs text-gray-500">
           Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-gray-300">Esc</kbd>
           to exit theater mode
         </p>

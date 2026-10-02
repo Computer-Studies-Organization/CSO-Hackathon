@@ -57,3 +57,6 @@ __screenshots__/
 
 # Cloudflare local auth (wrangler)
 worker/.cloudflare
+
+# Cloudflare Pages local state
+.wrangler/

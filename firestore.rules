@@ -279,7 +279,10 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.groupName is string
         && request.resource.data.videoUrl is string
-        && request.resource.data.videoUrl.matches('https://[a-z0-9.-]+\\.workers\\.dev/videos/[A-Za-z0-9_./-]+')
+        && (
+          request.resource.data.videoUrl.matches('https://[a-z0-9.-]+\\.workers\\.dev/videos/[A-Za-z0-9_./-]+')
+          || request.resource.data.videoUrl.matches('https://cso-opensource\\.pages\\.dev/videos/[A-Za-z0-9_./-]+')
+        )
         && request.resource.data.r2Key is string
         && request.resource.data.r2Key.matches('videos/' + request.auth.uid + '/[A-Za-z0-9_.-]+')
         && !('driveUrl' in request.resource.data);

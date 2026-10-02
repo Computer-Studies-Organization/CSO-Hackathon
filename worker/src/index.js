@@ -25,6 +25,16 @@ function corsHeaders(request, env) {
   }
 }
 
+/** Origin of the custom domain attached to this Worker, or '' when unset. */
+function playbackOrigin(env) {
+  if (!env.PLAYBACK_ORIGIN) return ''
+  try {
+    return new URL(env.PLAYBACK_ORIGIN).origin
+  } catch {
+    return ''
+  }
+}
+
 function withCors(response, request, env) {
   const headers = new Headers(response.headers)
   const cors = corsHeaders(request, env)
@@ -39,7 +49,7 @@ function withCors(response, request, env) {
 }
 
 export default {
-  async fetch(request, env, _ctx) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
 
     // CORS preflight
@@ -61,7 +71,27 @@ export default {
 
       // Public video playback
       if (url.pathname.startsWith('/videos/') && request.method === 'GET') {
-        const res = await handleServe(url.pathname, request, env)
+        // The Cache API (edge caching) only takes effect off *.workers.dev —
+        // send legacy workers.dev playback URLs to the custom domain.
+        const playback = playbackOrigin(env)
+        if (playback && url.origin !== playback) {
+          // Cacheable redirect: media stacks re-request the ORIGINAL URL for
+          // every Range chunk, and a bare 302 (no Cache-Control) is not cached
+          // — that doubled every playback request. With immutable caching the
+          // browser resolves the hop once, then goes straight to the origin.
+          return withCors(
+            new Response(null, {
+              status: 302,
+              headers: {
+                Location: `${playback}${url.pathname}${url.search}`,
+                'Cache-Control': 'public, max-age=31536000, immutable',
+              },
+            }),
+            request,
+            env,
+          )
+        }
+        const res = await handleServe(url.pathname, request, env, ctx)
         return withCors(res, request, env)
       }
 

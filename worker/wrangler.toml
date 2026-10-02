@@ -9,6 +9,11 @@ compatibility_date = "2026-09-24"
 FIREBASE_PROJECT_ID = "cso-repository"
 MAX_UPLOAD_BYTES = "1073741824" # 1 GB
 ALLOWED_ORIGINS = "http://localhost:5173,https://cso-opensource.pages.dev,https://cso-repository.firebaseapp.com,https://cso-repository.web.app"
+# Playback origin for /videos: the Pages project (Cache API works there — it
+# no-ops on *.workers.dev). Set AFTER the functions/videos Pages Function and
+# its R2 binding are live: new publicUrl values use it and legacy workers.dev
+# playback URLs 302 to it.
+PLAYBACK_ORIGIN = "https://cso-opensource.pages.dev"
 
 [[r2_buckets]]
 binding = "VIDEOS"

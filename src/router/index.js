@@ -1,24 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import SubmitView from '../views/SubmitView.vue'
-import CriteriaView from '../views/CriteriaView.vue'
-import SubmitVideoView from '../views/SubmitVideoView.vue'
-import LoginView from '../views/Auth/Login.vue'
-import AdminLayout from '../views/Admin/layout.vue'
-import AdminLogin from '../views/Admin/Login.vue'
-import AdminDashboard from '../views/Admin/Dashboard.vue'
-import AdminSubmissions from '../views/Admin/Submissions.vue'
-import AdminVideos from '../views/Admin/Videos.vue'
-import AdminAccounts from '../views/Admin/Accounts.vue'
-import JudgesLayout from '../views/Judges/layout.vue'
-import JudgesLogin from '../views/Judges/Login.vue'
-import JudgesDashboard from '../views/Judges/Dashboard.vue'
-import JudgesRepository from '../views/Judges/Repository.vue'
-import JudgesVideos from '../views/Judges/Videos.vue'
-import JudgesCriteria from '../views/Judges/Criteria.vue'
-import JudgesScoring from '../views/Judges/Scoring.vue'
-import AdminScores from '../views/Admin/Scores.vue'
 import { useAuthStore } from '@/stores/auth'
+
+// Panel/auth views are lazy-loaded (one chunk each) so the initial load only
+// carries the shell + landing page instead of the whole app.
 
 // Private: /admin requires a signed-in admin or superadmin account.
 async function requirePanelAccess(to) {
@@ -123,110 +108,110 @@ const router = createRouter({
     {
       path: '/videosubmission',
       name: 'VideoSubmission',
-      component: SubmitVideoView,
+      component: () => import('../views/SubmitVideoView.vue'),
       meta: { title: 'Video Submission' },
     },
     {
       path: '/submit',
       name: 'RepositorySubmission',
-      component: SubmitView,
+      component: () => import('../views/SubmitView.vue'),
       meta: { title: 'Repository Submission' },
     },
     {
       path: '/criteria',
       name: 'Criteria',
-      component: CriteriaView,
+      component: () => import('../views/CriteriaView.vue'),
       meta: { title: 'Criteria' },
     },
     {
       path: '/login',
       name: 'Login',
-      component: LoginView,
+      component: () => import('../views/Auth/Login.vue'),
       meta: { title: 'Sign In' },
     },
     {
       path: '/admin/login',
       name: 'AdminLogin',
-      component: AdminLogin,
+      component: () => import('../views/Admin/Login.vue'),
       beforeEnter: redirectAuthedAdmin,
     },
     {
       path: '/judges/login',
       name: 'JudgesLogin',
-      component: JudgesLogin,
+      component: () => import('../views/Judges/Login.vue'),
       beforeEnter: redirectAuthedJudge,
       meta: { title: 'Judge Sign In' },
     },
     {
       path: '/judges',
-      component: JudgesLayout,
+      component: () => import('../views/Judges/layout.vue'),
       beforeEnter: requireJudgeAccess,
       children: [
         {
           path: '',
           name: 'JudgesDashboard',
-          component: JudgesDashboard,
+          component: () => import('../views/Judges/Dashboard.vue'),
           meta: { title: 'Dashboard' },
         },
         {
           path: 'repository',
           name: 'JudgesRepository',
-          component: JudgesRepository,
+          component: () => import('../views/Judges/Repository.vue'),
           meta: { title: 'Repository Submissions' },
         },
         {
           path: 'videos',
           name: 'JudgesVideos',
-          component: JudgesVideos,
+          component: () => import('../views/Judges/Videos.vue'),
           meta: { title: 'Video Submissions' },
         },
         {
           path: 'criteria',
           name: 'JudgesCriteria',
-          component: JudgesCriteria,
+          component: () => import('../views/Judges/Criteria.vue'),
           meta: { title: 'Judging Criteria' },
         },
         {
           path: 'scoring',
           name: 'JudgesScoring',
-          component: JudgesScoring,
+          component: () => import('../views/Judges/Scoring.vue'),
           meta: { title: 'Scoring' },
         },
       ],
     },
     {
       path: '/admin',
-      component: AdminLayout,
+      component: () => import('../views/Admin/layout.vue'),
       beforeEnter: requirePanelAccess,
       children: [
         {
           path: '',
           name: 'AdminDashboard',
-          component: AdminDashboard,
+          component: () => import('../views/Admin/Dashboard.vue'),
           meta: { title: 'Dashboard' },
         },
         {
           path: 'submissions',
           name: 'AdminRepositorySubmissions',
-          component: AdminSubmissions,
+          component: () => import('../views/Admin/Submissions.vue'),
           meta: { title: 'Repository Submissions' },
         },
         {
           path: 'videos',
           name: 'AdminVideoSubmissions',
-          component: AdminVideos,
+          component: () => import('../views/Admin/Videos.vue'),
           meta: { title: 'Video Submissions' },
         },
         {
           path: 'scores',
           name: 'AdminScores',
-          component: AdminScores,
+          component: () => import('../views/Admin/Scores.vue'),
           meta: { title: 'Scores' },
         },
         {
           path: 'accounts',
           name: 'AdminAccounts',
-          component: AdminAccounts,
+          component: () => import('../views/Admin/Accounts.vue'),
           meta: { title: 'Accounts' },
           beforeEnter: requireAdmin,
         },

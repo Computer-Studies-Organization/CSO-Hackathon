@@ -26,7 +26,7 @@ onMounted(() => {
       <header v-if="!isAdminRoute && !isJudgeRoute" class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/10 text-white">
       <div class="container mx-auto py-4 px-6 flex justify-between items-center gap-3">
         <div class="flex items-center gap-3 min-w-0">
-          <img src="/assets/CSOLOGO-removebg-preview.png" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
+          <img src="/assets/CSOLOGO-removebg-preview.webp" alt="ACLC LOGO COMMITTEE" class="h-12 mx-auto bg-white rounded-full" />
           <h1 class="truncate text-sm sm:text-base font-bold">ACLC CODEFEST 2026</h1>
       </div>
         <!-- Desktop nav -->
@@ -164,7 +164,7 @@ onMounted(() => {
         <div>
           <div class="flex items-center gap-3">
             <img
-              src="/assets/CSOLOGO-removebg-preview.png"
+              src="/assets/CSOLOGO-removebg-preview.webp"
               alt="ACLC Logo Committee"
               class="h-12 w-auto bg-white rounded-full"
             />

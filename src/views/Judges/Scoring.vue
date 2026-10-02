@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ChevronDown, ExternalLink, Maximize2, Save, X } from 'lucide-vue-next'
 
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +22,12 @@ const notice = ref(null)
 // Theater mode — inline overlay player (no new tab).
 const theater = ref(null) // { title, embedUrl }
 
+// Lock body scroll while the overlay is open (touch devices scroll the
+// page behind the dialog otherwise).
+watch(theater, (v) => {
+  document.body.style.overflow = v ? 'hidden' : ''
+})
+
 const openTheater = (videoUrl, title) => {
   if (!videoUrl) return
   theater.value = { title: title || 'Video submission', embedUrl: videoUrl }
@@ -36,7 +42,10 @@ const onKeydown = (e) => {
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  document.body.style.overflow = ''
+})
 
 const draft = reactive({
   scores: Object.fromEntries(CRITERIA.map((c) => [c.key, null])),
@@ -457,7 +466,7 @@ const error = computed(() => scoresStore.error || submissionStore.error || video
     <Teleport to="body">
       <div
         v-if="theater"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-sm"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/95"
         role="dialog"
         aria-modal="true"
         :aria-label="theater.title"
@@ -471,7 +480,7 @@ const error = computed(() => scoresStore.error || submissionStore.error || video
 
           <button
             type="button"
-            class="shrink-0 p-2 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
+            class="shrink-0 p-2.5 min-h-11 min-w-11 rounded-lg text-gray-300 hover:bg-white/10 hover:text-white transition"
             aria-label="Close theater mode"
             @click="closeTheater"
           >
@@ -479,17 +488,21 @@ const error = computed(() => scoresStore.error || submissionStore.error || video
           </button>
         </div>
 
-        <!-- Stage — centered player, theater-style -->
-        <div class="flex-1 min-h-0 flex items-center justify-center p-3 sm:p-6">
-          <div
-            class="relative w-full max-w-6xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl"
-          >
-            <video :src="theater.embedUrl" controls autoplay playsinline class="w-full h-full" />
-          </div>
+        <!-- Stage — video self-sizes to fit: wide screens AND portrait/landscape phones -->
+        <div
+          class="flex-1 min-h-0 w-full mx-auto max-w-6xl flex items-center justify-center p-3 sm:p-6"
+        >
+          <video
+            :src="theater.embedUrl"
+            controls
+            autoplay
+            playsinline
+            class="max-w-full max-h-full rounded-lg bg-black shadow-2xl"
+          />
         </div>
 
         <!-- Bottom hint -->
-        <p class="pb-4 text-center text-xs text-gray-500">
+        <p class="hidden md:block pb-4 text-center text-xs text-gray-500">
           Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-gray-300">Esc</kbd>
           to exit theater mode
         </p>

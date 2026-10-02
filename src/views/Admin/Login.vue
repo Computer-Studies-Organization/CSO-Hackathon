@@ -43,7 +43,7 @@ const loginAsAdmin = async () => {
         <!-- Logo / Branding -->
         <div class="text-center mb-8">
           <img
-            src="/assets/Untitled3_20250620213045.png"
+            src="/assets/Untitled3_20250620213045.webp"
             alt="ACLC Logo Committee"
             class="h-16 mx-auto mb-5"
           />

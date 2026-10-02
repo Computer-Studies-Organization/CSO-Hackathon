@@ -84,7 +84,7 @@ const handleLogout = async () => {
         <div class="h-20 px-6 flex items-center border-b border-white/10">
           <div class="flex items-center gap-3">
             <img
-              src="/assets/Untitled3_20250620213045.png"
+              src="/assets/Untitled3_20250620213045.webp"
               alt="ACLC Logo Committee"
               class="h-10 w-auto"
             />
@@ -246,7 +246,7 @@ const handleLogout = async () => {
           <div class="h-20 px-6 flex items-center justify-between border-b border-white/10">
             <div class="flex items-center gap-3 min-w-0">
               <img
-                src="/assets/Untitled3_20250620213045.png"
+                src="/assets/Untitled3_20250620213045.webp"
                 alt="ACLC Logo Committee"
                 class="h-10 w-auto shrink-0"
               />

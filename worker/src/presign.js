@@ -96,7 +96,16 @@ export async function handlePresign(request, env) {
   })
 
   // key is already "videos/{uid}/…", so public path is /{key}
-  const origin = new URL(request.url).origin
+  // Playback origin (custom domain) wins when set — the Cache API only works
+  // there, so new submissions should store URLs that hit the edge cache.
+  let origin = new URL(request.url).origin
+  if (env.PLAYBACK_ORIGIN) {
+    try {
+      origin = new URL(env.PLAYBACK_ORIGIN).origin
+    } catch {
+      // keep request origin
+    }
+  }
   const publicUrl = `${origin}/${key}`
 
   return json({

@@ -126,7 +126,32 @@ Configuration lives in `worker/wrangler.toml`:
 | `MAX_UPLOAD_BYTES`    | upload cap (`"1073741824"` = 1 GiB); mirrored in `worker/src/presign.js` and the two client checks |
 | `ALLOWED_ORIGINS`     | CORS allowlist (localhost, Pages, Firebase hosting)         |
 | `FIREBASE_PROJECT_ID` | used to verify the Firebase ID token                        |
+| `PLAYBACK_ORIGIN`     | playback origin for new `publicUrl`s + 302 from legacy `workers.dev` URLs — set to the Pages origin (edge caching runs there) |
 | `[[r2_buckets]]`      | `VIDEOS` binding → bucket `cso-video-submissions`           |
+
+### Edge caching (fixes playback buffering)
+
+`functions/videos/[[path]].js` is a **Pages Function** that runs the same
+Range/206 playback pipeline as the Worker, but with the Cache API — each video
+is cached once at the Cloudflare edge and every later Range/seek request is
+served from the cache instead of R2. The Cache API works on Pages Functions
+even on `*.pages.dev` (it no-ops on `*.workers.dev`, which is why playback
+lives here and not on the Worker).
+
+Setup:
+
+1. Pages → your project → Settings → Bindings → **R2 bucket**
+   `cso-video-submissions`, binding name **`VIDEOS`**.
+2. In `worker/wrangler.toml`, set
+   `PLAYBACK_ORIGIN = "https://cso-opensource.pages.dev"` and
+   `npx wrangler deploy` — new uploads store Pages playback URLs, and legacy
+   `workers.dev` URLs stored in Firestore get 302'd there automatically.
+3. Rebuild/deploy the Pages project (the `functions/` and `public/_routes.json`
+   files ship with the normal git build).
+
+`public/_routes.json` limits function invocations to `/videos/*` so static
+requests stay on the free unlimited tier. Objects over 512 MiB are never cached
+(Cloudflare's cache object cap) and keep serving straight from R2.
 
 Allowed content types (`worker/src/presign.js`): `video/mp4`, `video/webm`, `video/quicktime`, `video/x-m4v`, `video/mpeg`. Presigned URLs expire after **15 minutes**.
 
@@ -171,7 +196,9 @@ https://cso-videos.<account>.workers.dev/videos/<uid>/<file>.mp4
 
 The Worker serves `Accept-Ranges: bytes` (→ `206 Partial Content`), `Cache-Control: public,
 max-age=31536000, immutable`, and `X-Content-Type-Options: nosniff`. The bucket itself is not
-publicly listable — playback goes through the Worker only.
+publicly listable — playback goes through the Worker only. With `PLAYBACK_ORIGIN` set (see
+*Edge caching* above), playback goes through the Pages Function instead, served from the edge
+cache after the first viewer.
 
 ---
 
